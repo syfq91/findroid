@@ -57,10 +57,12 @@ fun BookScreen(
         onAction = { action ->
             when (action) {
                 is BookAction.OnReadClick -> {
-                    val intent = Intent(context, BookReaderActivity::class.java).apply {
-                        putExtra(BookReaderActivity.EXTRA_BOOK_ID, bookId.toString())
-                        putExtra(BookReaderActivity.EXTRA_BOOK_TITLE, state.book?.name.orEmpty())
-                    }
+                    val intent = BookReaderActivity.createIntent(
+                        context = context,
+                        bookId = bookId,
+                        bookTitle = state.book?.name.orEmpty(),
+                        container = state.book?.container,
+                    )
                     context.startActivity(intent)
                 }
                 is BookAction.OnBackClick -> navigateBack()

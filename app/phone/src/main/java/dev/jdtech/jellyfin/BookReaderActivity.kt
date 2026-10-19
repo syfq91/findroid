@@ -6,6 +6,7 @@ import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.graphics.PointF
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -40,21 +41,30 @@ import java.net.URL
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.readium.r2.navigator.OverflowableNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.epub.EpubPreferences
+import org.readium.r2.navigator.image.ImageNavigatorFragment
+import org.readium.r2.navigator.input.InputListener
+import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.FontFamily
+import org.readium.r2.navigator.preferences.ReadingProgression as NavReadingProgression
 import org.readium.r2.navigator.preferences.Theme
+import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
+import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgression
 import org.readium.r2.shared.publication.asset.FileAsset
 import org.readium.r2.streamer.Streamer
 import timber.log.Timber
 
+@OptIn(ExperimentalReadiumApi::class)
 @AndroidEntryPoint
 class BookReaderActivity : AppCompatActivity() {
 
@@ -67,7 +77,8 @@ class BookReaderActivity : AppCompatActivity() {
     private var bookTitle: String = ""
 
     private var publication: Publication? = null
-    private var navigator: EpubNavigatorFragment? = null
+    private var navigator: OverflowableNavigator? = null
+    private var locatorJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,6 +97,7 @@ class BookReaderActivity : AppCompatActivity() {
 
         binding.textBookTitle.text = bookTitle
         applyOrientation()
+        applyReadingProgression()
         updateBackgroundTheme()
         setupControls()
 
@@ -125,6 +137,24 @@ class BookReaderActivity : AppCompatActivity() {
         }
     }
 
+    private fun isReadingProgressionRTL(pub: Publication? = publication): Boolean {
+        return when (appPreferences.getValue(appPreferences.readerReadingProgression)) {
+            "rtl" -> true
+            "ltr" -> false
+            else -> pub?.metadata?.readingProgression == PubReadingProgression.RTL
+        }
+    }
+
+    private fun applyReadingProgression(pub: Publication? = publication) {
+        val isRtl = isReadingProgressionRTL(pub)
+        val direction = if (isRtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        window.decorView.layoutDirection = direction
+        if (::binding.isInitialized) {
+            binding.root.layoutDirection = direction
+            binding.fragmentContainer.layoutDirection = direction
+        }
+    }
+
     private fun applyOrientation() {
         requestedOrientation = when (appPreferences.getValue(appPreferences.readerOrientation)) {
             "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -158,28 +188,38 @@ class BookReaderActivity : AppCompatActivity() {
         val fontSize = appPreferences.getValue(appPreferences.readerFontSize).toDouble()
         val scroll = appPreferences.getValue(appPreferences.readerScroll)
 
+        val progression = when (appPreferences.getValue(appPreferences.readerReadingProgression)) {
+            "ltr" -> NavReadingProgression.LTR
+            "rtl" -> NavReadingProgression.RTL
+            else -> null
+        }
+
         return EpubPreferences(
             theme = theme,
             fontFamily = fontFamily,
             fontSize = fontSize,
             scroll = scroll,
+            readingProgression = progression,
         )
     }
 
     private fun applyPreferences() {
         val epubPrefs = buildEpubPreferences()
-        navigator?.submitPreferences(epubPrefs)
+        (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPrefs)
         updateBackgroundTheme()
     }
 
     private fun showAppearanceDialog() {
         val bottomSheet = BottomSheetDialog(this)
+        val isImageBased = publication?.conformsTo(Publication.Profile.DIVINA) == true
         val initialPrefs = ReaderPreferencesState(
             fontSize = appPreferences.getValue(appPreferences.readerFontSize),
             fontFamily = appPreferences.getValue(appPreferences.readerFontFamily),
             theme = appPreferences.getValue(appPreferences.readerTheme),
             scroll = appPreferences.getValue(appPreferences.readerScroll),
             orientation = appPreferences.getValue(appPreferences.readerOrientation),
+            readingProgression = appPreferences.getValue(appPreferences.readerReadingProgression),
+            isImageBased = isImageBased,
         )
 
         val composeView = ComposeView(this).apply {
@@ -214,6 +254,18 @@ class BookReaderActivity : AppCompatActivity() {
                             appPreferences.setValue(appPreferences.readerOrientation, newOrientation)
                             applyOrientation()
                         },
+                        onProgressionChanged = { newProgression ->
+                            sheetState = sheetState.copy(readingProgression = newProgression)
+                            appPreferences.setValue(appPreferences.readerReadingProgression, newProgression)
+                            applyReadingProgression()
+                            val pub = publication
+                            if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
+                                val currentLoc = navigator?.currentLocator?.value
+                                initDivinaNavigator(pub, currentLoc, savedInstanceState = null)
+                            } else {
+                                applyPreferences()
+                            }
+                        },
                         onDismiss = { bottomSheet.dismiss() },
                     )
                 }
@@ -246,14 +298,37 @@ class BookReaderActivity : AppCompatActivity() {
 
     private suspend fun prepareBookFile(): File = withContext(Dispatchers.IO) {
         val booksDir = File(cacheDir, "books").apply { mkdirs() }
-        val targetFile = File(booksDir, "$bookId.epub")
 
+        var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
+        if (container.isNullOrBlank()) {
+            try {
+                val book = jellyfinRepository.getBook(bookUUID)
+                container = book.container
+            } catch (e: Exception) {
+                Timber.w(e, "Could not fetch book container, defaulting to epub")
+            }
+        }
+
+        val rawExtension = container?.lowercase()?.removePrefix(".") ?: "epub"
+        val extension = when (rawExtension) {
+            "cbz", "cbr", "zip", "rar" -> rawExtension
+            else -> "epub"
+        }
+
+        val targetFile = File(booksDir, "$bookId.$extension")
         if (targetFile.exists() && targetFile.length() > 0) {
             return@withContext targetFile
         }
 
+        val existing = booksDir.listFiles { _, name ->
+            name.startsWith("$bookId.") && !name.endsWith(".tmp")
+        }?.firstOrNull { it.length() > 0 }
+        if (existing != null) {
+            return@withContext existing
+        }
+
         val downloadUrl = jellyfinRepository.getDownloadUrl(bookUUID)
-        val tempFile = File(booksDir, "$bookId.epub.tmp")
+        val tempFile = File(booksDir, "$bookId.$extension.tmp")
 
         val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
@@ -281,6 +356,8 @@ class BookReaderActivity : AppCompatActivity() {
         val pub = streamer.open(FileAsset(file), allowUserInteraction = false).getOrThrow()
         this.publication = pub
 
+        applyReadingProgression(pub)
+
         val savedLocatorJson = appPreferences.sharedPreferences.getString(KEY_LOCATOR_PREFIX + bookId, null)
         val initialLocator = savedLocatorJson?.let {
             try {
@@ -291,6 +368,47 @@ class BookReaderActivity : AppCompatActivity() {
             }
         }
 
+        if (pub.conformsTo(Publication.Profile.DIVINA)) {
+            initDivinaNavigator(pub, initialLocator, savedInstanceState)
+        } else {
+            initEpubNavigator(pub, initialLocator, savedInstanceState)
+        }
+    }
+
+    private fun initDivinaNavigator(pub: Publication, initialLocator: Locator?, savedInstanceState: Bundle?) {
+        supportFragmentManager.fragmentFactory = ImageNavigatorFragment.createFactory(
+            publication = pub,
+            initialLocator = initialLocator,
+            listener = object : ImageNavigatorFragment.Listener {}
+        )
+
+        val fragment = if (savedInstanceState == null) {
+            val created = supportFragmentManager.fragmentFactory.instantiate(
+                classLoader,
+                ImageNavigatorFragment::class.java.name
+            ) as ImageNavigatorFragment
+            supportFragmentManager.beginTransaction()
+                .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                .commit()
+            created
+        } else {
+            supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? ImageNavigatorFragment
+                ?: (supportFragmentManager.fragmentFactory.instantiate(
+                    classLoader,
+                    ImageNavigatorFragment::class.java.name
+                ) as ImageNavigatorFragment).also { created ->
+                    supportFragmentManager.beginTransaction()
+                        .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                        .commit()
+                }
+        }
+
+        this.navigator = fragment
+        setupInputListener(fragment)
+        observeNavigator()
+    }
+
+    private fun initEpubNavigator(pub: Publication, initialLocator: Locator?, savedInstanceState: Bundle?) {
         val navigatorFactory = EpubNavigatorFactory(pub)
         supportFragmentManager.fragmentFactory = navigatorFactory.createFragmentFactory(
             initialLocator = initialLocator,
@@ -314,16 +432,34 @@ class BookReaderActivity : AppCompatActivity() {
             created
         } else {
             supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? EpubNavigatorFragment
+                ?: (supportFragmentManager.fragmentFactory.instantiate(
+                    classLoader,
+                    EpubNavigatorFragment::class.java.name
+                ) as EpubNavigatorFragment).also { created ->
+                    supportFragmentManager.beginTransaction()
+                        .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                        .commit()
+                }
         }
 
         this.navigator = fragment
+        setupInputListener(fragment)
         observeNavigator()
+    }
+
+    private fun setupInputListener(nav: OverflowableNavigator) {
+        nav.addInputListener(object : InputListener {
+            override fun onTap(event: TapEvent): Boolean {
+                toggleControls()
+                return true
+            }
+        })
     }
 
     private fun observeNavigator() {
         val nav = navigator ?: return
-
-        lifecycleScope.launch {
+        locatorJob?.cancel()
+        locatorJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 nav.currentLocator.collect { locator ->
                     onLocatorChanged(locator)
@@ -359,7 +495,15 @@ class BookReaderActivity : AppCompatActivity() {
 
     private fun showTableOfContents() {
         val pub = publication ?: return
-        val toc = pub.tableOfContents
+        val toc = if (pub.tableOfContents.isNotEmpty()) {
+            pub.tableOfContents
+        } else if (pub.conformsTo(Publication.Profile.DIVINA)) {
+            pub.readingOrder.mapIndexed { index, link ->
+                link.copy(title = link.title ?: "Page ${index + 1}")
+            }
+        } else {
+            emptyList()
+        }
 
         if (toc.isEmpty()) {
             Toast.makeText(this, getString(CoreR.string.no_toc_available), Toast.LENGTH_SHORT).show()
@@ -375,7 +519,7 @@ class BookReaderActivity : AppCompatActivity() {
         }
         flatten(toc)
 
-        val titles = flattenedLinks.map { it.title?.ifBlank { it.href } ?: it.href }.toTypedArray()
+        val titles = flattenedLinks.map { it.title?.ifBlank { it.href.toString() } ?: it.href.toString() }.toTypedArray()
 
         AlertDialog.Builder(this)
             .setTitle(getString(CoreR.string.table_of_contents))
@@ -405,20 +549,30 @@ class BookReaderActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        locatorJob?.cancel()
         publication?.close()
     }
 
     companion object {
         const val EXTRA_BOOK_ID = "extra_book_id"
         const val EXTRA_BOOK_TITLE = "extra_book_title"
-        private const val TAG_NAVIGATOR = "epub_navigator"
+        const val EXTRA_BOOK_CONTAINER = "extra_book_container"
+        private const val TAG_NAVIGATOR = "reader_navigator"
         private const val KEY_LOCATOR_PREFIX = "pref_book_locator_"
         private const val VIRTUAL_TICKS_TOTAL = 1_000_000_000L
 
-        fun createIntent(context: Context, bookId: UUID, bookTitle: String): Intent {
+        fun createIntent(
+            context: Context,
+            bookId: UUID,
+            bookTitle: String,
+            container: String? = null,
+        ): Intent {
             return Intent(context, BookReaderActivity::class.java).apply {
                 putExtra(EXTRA_BOOK_ID, bookId.toString())
                 putExtra(EXTRA_BOOK_TITLE, bookTitle)
+                if (container != null) {
+                    putExtra(EXTRA_BOOK_CONTAINER, container)
+                }
             }
         }
     }

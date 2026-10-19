@@ -43,6 +43,8 @@ data class ReaderPreferencesState(
     val theme: String = "dark",
     val scroll: Boolean = false,
     val orientation: String = "sensor",
+    val readingProgression: String = "auto",
+    val isImageBased: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +56,7 @@ fun ReaderAppearanceSheet(
     onThemeChanged: (String) -> Unit,
     onScrollChanged: (Boolean) -> Unit,
     onOrientationChanged: (String) -> Unit,
+    onProgressionChanged: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -129,112 +132,144 @@ fun ReaderAppearanceSheet(
 
             Spacer(Modifier.height(MaterialTheme.spacings.default))
 
-            // Font Size
+            // Reading Direction
+            Text(
+                text = stringResource(CoreR.string.reader_reading_progression),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                FilterChip(
+                    selected = state.readingProgression == "auto",
+                    onClick = { onProgressionChanged("auto") },
+                    label = { Text(stringResource(CoreR.string.reader_progression_auto)) },
+                )
+                FilterChip(
+                    selected = state.readingProgression == "ltr",
+                    onClick = { onProgressionChanged("ltr") },
+                    label = { Text(stringResource(CoreR.string.reader_progression_ltr)) },
+                )
+                FilterChip(
+                    selected = state.readingProgression == "rtl",
+                    onClick = { onProgressionChanged("rtl") },
+                    label = { Text(stringResource(CoreR.string.reader_progression_rtl)) },
+                )
+            }
+
+            if (!state.isImageBased) {
+                Spacer(Modifier.height(MaterialTheme.spacings.default))
+
+                // Font Size
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(CoreR.string.reader_font_size),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "${(state.fontSize * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            val newSize = (state.fontSize - 0.1f).coerceIn(0.6f, 2.5f)
+                            onFontSizeChanged((newSize * 10).roundToInt() / 10f)
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Text("A-", style = MaterialTheme.typography.labelLarge)
+                    }
+                    Slider(
+                        value = state.fontSize,
+                        onValueChange = { onFontSizeChanged((it * 10).roundToInt() / 10f) },
+                        valueRange = 0.6f..2.5f,
+                        steps = 18,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                    FilledTonalIconButton(
+                        onClick = {
+                            val newSize = (state.fontSize + 0.1f).coerceIn(0.6f, 2.5f)
+                            onFontSizeChanged((newSize * 10).roundToInt() / 10f)
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Text("A+", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+
+                Spacer(Modifier.height(MaterialTheme.spacings.default))
+
+                // Font Family
                 Text(
-                    text = stringResource(CoreR.string.reader_font_size),
+                    text = stringResource(CoreR.string.reader_font_family),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = state.fontFamily == "default",
+                        onClick = { onFontFamilyChanged("default") },
+                        label = { Text(stringResource(CoreR.string.reader_font_default)) },
+                    )
+                    FilterChip(
+                        selected = state.fontFamily == "sans",
+                        onClick = { onFontFamilyChanged("sans") },
+                        label = { Text(stringResource(CoreR.string.reader_font_sans), fontFamily = ComposeFontFamily.SansSerif) },
+                    )
+                    FilterChip(
+                        selected = state.fontFamily == "serif",
+                        onClick = { onFontFamilyChanged("serif") },
+                        label = { Text(stringResource(CoreR.string.reader_font_serif), fontFamily = ComposeFontFamily.Serif) },
+                    )
+                    FilterChip(
+                        selected = state.fontFamily == "opendyslexic",
+                        onClick = { onFontFamilyChanged("opendyslexic") },
+                        label = { Text(stringResource(CoreR.string.reader_font_opendyslexic)) },
+                    )
+                }
+
+                Spacer(Modifier.height(MaterialTheme.spacings.default))
+
+                // Reading Mode (Layout)
                 Text(
-                    text = "${(state.fontSize * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
+                    text = stringResource(CoreR.string.reader_layout),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilledTonalIconButton(
-                    onClick = {
-                        val newSize = (state.fontSize - 0.1f).coerceIn(0.6f, 2.5f)
-                        onFontSizeChanged((newSize * 10).roundToInt() / 10f)
-                    },
-                    modifier = Modifier.size(36.dp),
+                Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("A-", style = MaterialTheme.typography.labelLarge)
+                    FilterChip(
+                        selected = !state.scroll,
+                        onClick = { onScrollChanged(false) },
+                        label = { Text(stringResource(CoreR.string.reader_layout_paged)) },
+                    )
+                    FilterChip(
+                        selected = state.scroll,
+                        onClick = { onScrollChanged(true) },
+                        label = { Text(stringResource(CoreR.string.reader_layout_scroll)) },
+                    )
                 }
-                Slider(
-                    value = state.fontSize,
-                    onValueChange = { onFontSizeChanged((it * 10).roundToInt() / 10f) },
-                    valueRange = 0.6f..2.5f,
-                    steps = 18,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                )
-                FilledTonalIconButton(
-                    onClick = {
-                        val newSize = (state.fontSize + 0.1f).coerceIn(0.6f, 2.5f)
-                        onFontSizeChanged((newSize * 10).roundToInt() / 10f)
-                    },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Text("A+", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-
-            Spacer(Modifier.height(MaterialTheme.spacings.default))
-
-            // Font Family
-            Text(
-                text = stringResource(CoreR.string.reader_font_family),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = state.fontFamily == "default",
-                    onClick = { onFontFamilyChanged("default") },
-                    label = { Text(stringResource(CoreR.string.reader_font_default)) },
-                )
-                FilterChip(
-                    selected = state.fontFamily == "sans",
-                    onClick = { onFontFamilyChanged("sans") },
-                    label = { Text(stringResource(CoreR.string.reader_font_sans), fontFamily = ComposeFontFamily.SansSerif) },
-                )
-                FilterChip(
-                    selected = state.fontFamily == "serif",
-                    onClick = { onFontFamilyChanged("serif") },
-                    label = { Text(stringResource(CoreR.string.reader_font_serif), fontFamily = ComposeFontFamily.Serif) },
-                )
-                FilterChip(
-                    selected = state.fontFamily == "opendyslexic",
-                    onClick = { onFontFamilyChanged("opendyslexic") },
-                    label = { Text(stringResource(CoreR.string.reader_font_opendyslexic)) },
-                )
-            }
-
-            Spacer(Modifier.height(MaterialTheme.spacings.default))
-
-            // Reading Mode (Layout)
-            Text(
-                text = stringResource(CoreR.string.reader_layout),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = !state.scroll,
-                    onClick = { onScrollChanged(false) },
-                    label = { Text(stringResource(CoreR.string.reader_layout_paged)) },
-                )
-                FilterChip(
-                    selected = state.scroll,
-                    onClick = { onScrollChanged(true) },
-                    label = { Text(stringResource(CoreR.string.reader_layout_scroll)) },
-                )
             }
 
             Spacer(Modifier.height(MaterialTheme.spacings.default))

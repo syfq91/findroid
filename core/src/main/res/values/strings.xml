@@ -137,4 +137,8 @@
     <string name="reader_orientation_auto">Auto</string>
     <string name="reader_orientation_portrait">Portrait</string>
     <string name="reader_orientation_landscape">Landscape</string>
+    <string name="reader_reading_progression">Reading direction</string>
+    <string name="reader_progression_auto">Default</string>
+    <string name="reader_progression_ltr">Left to Right</string>
+    <string name="reader_progression_rtl">Right to Left (Manga)</string>
 </resources>

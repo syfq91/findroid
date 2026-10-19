@@ -92,6 +92,7 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val readerTheme = Preference("pref_reader_theme", "dark")
     val readerScroll = Preference("pref_reader_scroll", false)
     val readerOrientation = Preference("pref_reader_orientation", "sensor")
+    val readerReadingProgression = Preference("pref_reader_reading_progression", "auto")
 
     // Network
     val requestTimeout =
