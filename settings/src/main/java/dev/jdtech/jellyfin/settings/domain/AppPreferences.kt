@@ -86,6 +86,13 @@ class AppPreferences @Inject constructor(val sharedPreferences: SharedPreference
     val downloadOverMobileData = Preference("pref_downloads_mobile_data", false)
     val downloadWhenRoaming = Preference("pref_downloads_roaming", false)
 
+    // Reader
+    val readerFontSize = Preference("pref_reader_font_size", 1.0f)
+    val readerFontFamily = Preference("pref_reader_font_family", "default")
+    val readerTheme = Preference("pref_reader_theme", "dark")
+    val readerScroll = Preference("pref_reader_scroll", false)
+    val readerOrientation = Preference("pref_reader_orientation", "sensor")
+
     // Network
     val requestTimeout =
         Preference("pref_network_request_timeout", Constants.NETWORK_DEFAULT_REQUEST_TIMEOUT)

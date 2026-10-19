@@ -119,4 +119,22 @@
     <string name="table_of_contents">Table of Contents</string>
     <string name="error_opening_book">Failed to open book</string>
     <string name="no_toc_available">No table of contents available</string>
+    <string name="reader_appearance">Appearance</string>
+    <string name="reader_font_size">Font size</string>
+    <string name="reader_font_family">Font</string>
+    <string name="reader_font_default">Default</string>
+    <string name="reader_font_sans">Sans</string>
+    <string name="reader_font_serif">Serif</string>
+    <string name="reader_font_opendyslexic">Dyslexic</string>
+    <string name="reader_theme">Theme</string>
+    <string name="reader_theme_light">Light</string>
+    <string name="reader_theme_dark">Dark</string>
+    <string name="reader_theme_sepia">Sepia</string>
+    <string name="reader_layout">Reading mode</string>
+    <string name="reader_layout_paged">Paginated</string>
+    <string name="reader_layout_scroll">Continuous</string>
+    <string name="reader_orientation">Orientation</string>
+    <string name="reader_orientation_auto">Auto</string>
+    <string name="reader_orientation_portrait">Portrait</string>
+    <string name="reader_orientation_landscape">Landscape</string>
 </resources>

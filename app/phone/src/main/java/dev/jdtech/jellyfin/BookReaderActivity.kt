@@ -2,12 +2,20 @@ package dev.jdtech.jellyfin
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.graphics.Color
 import android.graphics.PointF
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -15,9 +23,13 @@ import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityBookReaderBinding
+import dev.jdtech.jellyfin.presentation.book.components.ReaderAppearanceSheet
+import dev.jdtech.jellyfin.presentation.book.components.ReaderPreferencesState
+import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
@@ -33,6 +45,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
+import org.readium.r2.navigator.epub.EpubPreferences
+import org.readium.r2.navigator.preferences.FontFamily
+import org.readium.r2.navigator.preferences.Theme
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
@@ -70,6 +85,8 @@ class BookReaderActivity : AppCompatActivity() {
         bookTitle = intent.getStringExtra(EXTRA_BOOK_TITLE).orEmpty()
 
         binding.textBookTitle.text = bookTitle
+        applyOrientation()
+        updateBackgroundTheme()
         setupControls()
 
         loadBookAndOpen(savedInstanceState)
@@ -78,6 +95,10 @@ class BookReaderActivity : AppCompatActivity() {
     private fun setupControls() {
         binding.buttonBack.setOnClickListener {
             finish()
+        }
+
+        binding.buttonAppearance.setOnClickListener {
+            showAppearanceDialog()
         }
 
         binding.buttonToc.setOnClickListener {
@@ -102,6 +123,105 @@ class BookReaderActivity : AppCompatActivity() {
         } else {
             controller.hide(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    private fun applyOrientation() {
+        requestedOrientation = when (appPreferences.getValue(appPreferences.readerOrientation)) {
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_USER
+        }
+    }
+
+    private fun updateBackgroundTheme() {
+        val themeStr = appPreferences.getValue(appPreferences.readerTheme)
+        val color = when (themeStr) {
+            "light" -> Color.parseColor("#FAFAFA")
+            "sepia" -> Color.parseColor("#FBF0D9")
+            else -> Color.parseColor("#121212")
+        }
+        binding.readerRoot.setBackgroundColor(color)
+    }
+
+    private fun buildEpubPreferences(): EpubPreferences {
+        val theme = when (appPreferences.getValue(appPreferences.readerTheme)) {
+            "light" -> Theme.LIGHT
+            "sepia" -> Theme.SEPIA
+            else -> Theme.DARK
+        }
+        val fontFamily = when (appPreferences.getValue(appPreferences.readerFontFamily)) {
+            "serif" -> FontFamily.SERIF
+            "sans" -> FontFamily.SANS_SERIF
+            "opendyslexic" -> FontFamily.OPEN_DYSLEXIC
+            else -> null
+        }
+        val fontSize = appPreferences.getValue(appPreferences.readerFontSize).toDouble()
+        val scroll = appPreferences.getValue(appPreferences.readerScroll)
+
+        return EpubPreferences(
+            theme = theme,
+            fontFamily = fontFamily,
+            fontSize = fontSize,
+            scroll = scroll,
+        )
+    }
+
+    private fun applyPreferences() {
+        val epubPrefs = buildEpubPreferences()
+        navigator?.submitPreferences(epubPrefs)
+        updateBackgroundTheme()
+    }
+
+    private fun showAppearanceDialog() {
+        val bottomSheet = BottomSheetDialog(this)
+        val initialPrefs = ReaderPreferencesState(
+            fontSize = appPreferences.getValue(appPreferences.readerFontSize),
+            fontFamily = appPreferences.getValue(appPreferences.readerFontFamily),
+            theme = appPreferences.getValue(appPreferences.readerTheme),
+            scroll = appPreferences.getValue(appPreferences.readerScroll),
+            orientation = appPreferences.getValue(appPreferences.readerOrientation),
+        )
+
+        val composeView = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                var sheetState by remember { mutableStateOf(initialPrefs) }
+                FindroidTheme {
+                    ReaderAppearanceSheet(
+                        state = sheetState,
+                        onFontSizeChanged = { newSize ->
+                            sheetState = sheetState.copy(fontSize = newSize)
+                            appPreferences.setValue(appPreferences.readerFontSize, newSize)
+                            applyPreferences()
+                        },
+                        onFontFamilyChanged = { newFont ->
+                            sheetState = sheetState.copy(fontFamily = newFont)
+                            appPreferences.setValue(appPreferences.readerFontFamily, newFont)
+                            applyPreferences()
+                        },
+                        onThemeChanged = { newTheme ->
+                            sheetState = sheetState.copy(theme = newTheme)
+                            appPreferences.setValue(appPreferences.readerTheme, newTheme)
+                            applyPreferences()
+                        },
+                        onScrollChanged = { newScroll ->
+                            sheetState = sheetState.copy(scroll = newScroll)
+                            appPreferences.setValue(appPreferences.readerScroll, newScroll)
+                            applyPreferences()
+                        },
+                        onOrientationChanged = { newOrientation ->
+                            sheetState = sheetState.copy(orientation = newOrientation)
+                            appPreferences.setValue(appPreferences.readerOrientation, newOrientation)
+                            applyOrientation()
+                        },
+                        onDismiss = { bottomSheet.dismiss() },
+                    )
+                }
+            }
+        }
+
+        bottomSheet.setContentView(composeView)
+        bottomSheet.show()
     }
 
     private fun loadBookAndOpen(savedInstanceState: Bundle?) {
@@ -174,6 +294,7 @@ class BookReaderActivity : AppCompatActivity() {
         val navigatorFactory = EpubNavigatorFactory(pub)
         supportFragmentManager.fragmentFactory = navigatorFactory.createFragmentFactory(
             initialLocator = initialLocator,
+            initialPreferences = buildEpubPreferences(),
             listener = object : EpubNavigatorFragment.Listener {
                 override fun onTap(point: PointF): Boolean {
                     toggleControls()

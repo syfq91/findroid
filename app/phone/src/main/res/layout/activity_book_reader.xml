@@ -103,6 +103,14 @@
             </LinearLayout>
 
             <ImageButton
+                android:id="@+id/button_appearance"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/reader_appearance"
+                android:src="@drawable/ic_settings" />
+
+            <ImageButton
                 android:id="@+id/button_toc"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
