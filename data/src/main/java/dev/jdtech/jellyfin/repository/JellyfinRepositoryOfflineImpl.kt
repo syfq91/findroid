@@ -16,6 +16,7 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
+import dev.jdtech.jellyfin.models.toFindroidBook
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidSeason
@@ -54,9 +55,10 @@ class JellyfinRepositoryOfflineImpl(
             database.getMovie(itemId).toFindroidMovie(database, jellyfinApi.userId!!)
         }
 
-    override suspend fun getBook(itemId: UUID): FindroidBook {
-        throw NotImplementedError("Offline books are not yet supported")
-    }
+    override suspend fun getBook(itemId: UUID): FindroidBook =
+        withContext(Dispatchers.IO) {
+            database.getBook(itemId).toFindroidBook(database, jellyfinApi.userId!!)
+        }
 
     override suspend fun getShow(itemId: UUID): FindroidShow =
         withContext(Dispatchers.IO) {
@@ -77,9 +79,22 @@ class JellyfinRepositoryOfflineImpl(
         return emptyList()
     }
 
-    override suspend fun getItem(itemId: UUID): FindroidItem? {
-        return null
-    }
+    override suspend fun getItem(itemId: UUID): FindroidItem? =
+        withContext(Dispatchers.IO) {
+            try {
+                database.getMovie(itemId).toFindroidMovie(database, jellyfinApi.userId!!)
+            } catch (_: Exception) {
+                try {
+                    database.getEpisode(itemId).toFindroidEpisode(database, jellyfinApi.userId!!)
+                } catch (_: Exception) {
+                    try {
+                        database.getBook(itemId).toFindroidBook(database, jellyfinApi.userId!!)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        }
 
     override suspend fun getItems(
         parentId: UUID?,
@@ -133,7 +148,11 @@ class JellyfinRepositoryOfflineImpl(
                 database
                     .searchEpisodes(appPreferences.getValue(appPreferences.currentServer)!!, query)
                     .map { it.toFindroidEpisode(database, jellyfinApi.userId!!) }
-            movies + shows + episodes
+            val books =
+                database
+                    .searchBooks(appPreferences.getValue(appPreferences.currentServer)!!, query)
+                    .map { it.toFindroidBook(database, jellyfinApi.userId!!) }
+            movies + shows + episodes + books
         }
     }
 
@@ -153,7 +172,12 @@ class JellyfinRepositoryOfflineImpl(
                     .getEpisodesByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
                     .map { it.toFindroidEpisode(database, jellyfinApi.userId!!) }
                     .filter { it.playbackPositionTicks > 0 }
-            movies + episodes
+            val books =
+                database
+                    .getBooksByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
+                    .map { it.toFindroidBook(database, jellyfinApi.userId!!) }
+                    .filter { it.playbackPositionTicks > 0 }
+            movies + episodes + books
         }
     }
 
@@ -328,6 +352,11 @@ class JellyfinRepositoryOfflineImpl(
                 database
                     .getShowsByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
                     .map { it.toFindroidShow(database, jellyfinApi.userId!!) }
+            )
+            items.addAll(
+                database
+                    .getBooksByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
+                    .map { it.toFindroidBook(database, jellyfinApi.userId!!) }
             )
             items
         }

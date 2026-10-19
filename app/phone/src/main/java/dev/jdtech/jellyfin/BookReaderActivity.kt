@@ -28,6 +28,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.databinding.ActivityBookReaderBinding
+import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.presentation.book.components.ReaderAppearanceSheet
 import dev.jdtech.jellyfin.presentation.book.components.ReaderPreferencesState
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
@@ -297,18 +298,25 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private suspend fun prepareBookFile(): File = withContext(Dispatchers.IO) {
-        val booksDir = File(cacheDir, "books").apply { mkdirs() }
-
         var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
-        if (container.isNullOrBlank()) {
-            try {
-                val book = jellyfinRepository.getBook(bookUUID)
+        try {
+            val book = jellyfinRepository.getBook(bookUUID)
+            if (container.isNullOrBlank()) {
                 container = book.container
-            } catch (e: Exception) {
-                Timber.w(e, "Could not fetch book container, defaulting to epub")
             }
+            val localSource = book.sources.firstOrNull { it.type == FindroidSourceType.LOCAL }
+            if (localSource != null) {
+                val localFile = File(localSource.path)
+                if (localFile.exists() && localFile.length() > 0) {
+                    Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
+                    return@withContext localFile
+                }
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Could not fetch book details or local source")
         }
 
+        val booksDir = File(cacheDir, "books").apply { mkdirs() }
         val rawExtension = container?.lowercase()?.removePrefix(".") ?: "epub"
         val extension = when (rawExtension) {
             "cbz", "cbr", "zip", "rar" -> rawExtension

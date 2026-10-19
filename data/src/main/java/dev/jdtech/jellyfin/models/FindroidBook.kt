@@ -37,9 +37,30 @@ suspend fun BaseItemDto.toFindroidBook(
     serverDatabase: ServerDatabaseDao? = null,
 ): FindroidBook {
     val sources = mutableListOf<FindroidSource>()
-    sources.addAll(mediaSources?.map { it.toFindroidSource(jellyfinRepository, id) } ?: emptyList())
+    sources.addAll(
+        mediaSources?.map {
+            val src = it.toFindroidSource(jellyfinRepository, id)
+            if (src.path.isBlank() || !src.path.startsWith("http")) {
+                src.copy(path = jellyfinRepository.getDownloadUrl(id))
+            } else {
+                src
+            }
+        } ?: emptyList()
+    )
     if (serverDatabase != null) {
         sources.addAll(serverDatabase.getSources(id).map { it.toFindroidSource(serverDatabase) })
+    }
+    if (sources.none { it.type == FindroidSourceType.REMOTE }) {
+        sources.add(
+            FindroidSource(
+                id = id.toString(),
+                name = name.orEmpty(),
+                type = FindroidSourceType.REMOTE,
+                path = jellyfinRepository.getDownloadUrl(id),
+                size = size ?: mediaSources?.firstOrNull()?.size ?: 0L,
+                mediaStreams = emptyList(),
+            )
+        )
     }
 
     val authors =
@@ -71,5 +92,35 @@ suspend fun BaseItemDto.toFindroidBook(
         container = container ?: mediaSources?.firstOrNull()?.container,
         size = mediaSources?.firstOrNull()?.size,
         images = toFindroidImages(jellyfinRepository),
+    )
+}
+
+suspend fun FindroidBookDto.toFindroidBook(
+    database: ServerDatabaseDao,
+    userId: UUID,
+): FindroidBook {
+    val userData = database.getUserDataOrCreateNew(id, userId)
+    val sources = database.getSources(id).map { it.toFindroidSource(database) }
+    return FindroidBook(
+        id = id,
+        name = name,
+        originalTitle = originalTitle,
+        overview = overview,
+        sources = sources,
+        played = userData.played,
+        favorite = userData.favorite,
+        canPlay = true,
+        canDownload = false,
+        runtimeTicks = runtimeTicks,
+        playbackPositionTicks = userData.playbackPositionTicks,
+        seriesName = seriesName,
+        seriesIndex = seriesIndex,
+        authors = authors ?: emptyList(),
+        genres = genres ?: emptyList(),
+        communityRating = communityRating,
+        productionYear = productionYear,
+        container = container,
+        size = size,
+        images = toLocalFindroidImages(itemId = id),
     )
 }

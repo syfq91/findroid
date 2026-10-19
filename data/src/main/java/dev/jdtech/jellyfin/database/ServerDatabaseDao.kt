@@ -6,6 +6,7 @@ import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
 import androidx.room3.Transaction
 import androidx.room3.Update
+import dev.jdtech.jellyfin.models.FindroidBookDto
 import dev.jdtech.jellyfin.models.FindroidEpisodeDto
 import dev.jdtech.jellyfin.models.FindroidMediaStreamDto
 import dev.jdtech.jellyfin.models.FindroidMovieDto
@@ -250,4 +251,18 @@ interface ServerDatabaseDao {
 
     @Query("SELECT * FROM trickplayInfos WHERE sourceId = :sourceId")
     suspend fun getTrickplayInfo(sourceId: String): FindroidTrickplayInfoDto?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertBook(book: FindroidBookDto)
+
+    @Query("SELECT * FROM books WHERE id = :id") suspend fun getBook(id: UUID): FindroidBookDto
+
+    @Query("SELECT * FROM books ORDER BY name ASC") suspend fun getBooks(): List<FindroidBookDto>
+
+    @Query("SELECT * FROM books WHERE serverId = :serverId ORDER BY name ASC")
+    suspend fun getBooksByServerId(serverId: String): List<FindroidBookDto>
+
+    @Query("DELETE FROM books WHERE id = :id") suspend fun deleteBook(id: UUID)
+
+    @Query("SELECT * FROM books WHERE serverId = :serverId AND name LIKE '%' || :name || '%'")
+    suspend fun searchBooks(serverId: String, name: String): List<FindroidBookDto>
 }

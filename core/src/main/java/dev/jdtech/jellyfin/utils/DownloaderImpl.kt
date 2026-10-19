@@ -12,13 +12,16 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidSource
+import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.FindroidSources
 import dev.jdtech.jellyfin.models.FindroidTrickplayInfo
 import dev.jdtech.jellyfin.models.UiText
+import dev.jdtech.jellyfin.models.toFindroidBookDto
 import dev.jdtech.jellyfin.models.toFindroidEpisodeDto
 import dev.jdtech.jellyfin.models.toFindroidMediaStreamDto
 import dev.jdtech.jellyfin.models.toFindroidMovieDto
@@ -58,10 +61,34 @@ class DownloaderImpl(
     ): Pair<Long, UiText?> = coroutineScope {
         try {
             val source =
-                jellyfinRepository.getMediaSources(item.id, true).first { it.id == sourceId }
-            val segments = jellyfinRepository.getSegments(item.id)
+                if (item is FindroidBook) {
+                    val rawSource =
+                        item.sources.firstOrNull { it.id == sourceId }
+                            ?: try {
+                                jellyfinRepository.getMediaSources(item.id, true).firstOrNull { it.id == sourceId }
+                            } catch (_: Exception) {
+                                null
+                            }
+                            ?: item.sources.firstOrNull()
+                            ?: FindroidSource(
+                                id = sourceId.ifBlank { item.id.toString() },
+                                name = item.name,
+                                type = FindroidSourceType.REMOTE,
+                                path = jellyfinRepository.getDownloadUrl(item.id),
+                                size = item.size ?: 0L,
+                                mediaStreams = emptyList(),
+                            )
+                    if (rawSource.path.isBlank() || !rawSource.path.startsWith("http")) {
+                        rawSource.copy(path = jellyfinRepository.getDownloadUrl(item.id))
+                    } else {
+                        rawSource
+                    }
+                } else {
+                    jellyfinRepository.getMediaSources(item.id, true).first { it.id == sourceId }
+                }
+            val segments = if (item is FindroidBook) emptyList() else jellyfinRepository.getSegments(item.id)
             val trickplayInfo =
-                if (item is FindroidSources) {
+                if (item is FindroidSources && item !is FindroidBook) {
                     item.trickplayInfo?.get(sourceId)
                 } else {
                     null
@@ -131,6 +158,13 @@ class DownloaderImpl(
                     startImagesDownloader(show)
                     startImagesDownloader(season)
                 }
+                is FindroidBook -> {
+                    database.insertBook(
+                        item.toFindroidBookDto(
+                            appPreferences.getValue(appPreferences.currentServer)
+                        )
+                    )
+                }
             }
 
             val sourceDto = source.toFindroidSourceDto(item.id, path.path.orEmpty())
@@ -138,9 +172,10 @@ class DownloaderImpl(
             database.insertSource(sourceDto.copy(downloadId = downloadId))
             database.insertUserData(item.toFindroidUserDataDto(jellyfinRepository.getUserId()))
 
-            downloadExternalMediaStreams(item, source, storageIndex)
-
-            segments.forEach { database.insertSegment(it.toFindroidSegmentsDto(item.id)) }
+            if (item !is FindroidBook) {
+                downloadExternalMediaStreams(item, source, storageIndex)
+                segments.forEach { database.insertSegment(it.toFindroidSegmentsDto(item.id)) }
+            }
 
             if (trickplayInfo != null) {
                 downloadTrickplayData(item.id, sourceId, trickplayInfo)
@@ -150,8 +185,16 @@ class DownloaderImpl(
             return@coroutineScope Pair(downloadId, null)
         } catch (e: Exception) {
             try {
-                val source = jellyfinRepository.getMediaSources(item.id).first { it.id == sourceId }
-                deleteItem(item, source)
+                val source =
+                    if (item is FindroidBook) {
+                        item.sources.firstOrNull { it.id == sourceId }
+                            ?: jellyfinRepository.getMediaSources(item.id).firstOrNull { it.id == sourceId }
+                    } else {
+                        jellyfinRepository.getMediaSources(item.id).first { it.id == sourceId }
+                    }
+                if (source != null) {
+                    deleteItem(item, source)
+                }
             } catch (_: Exception) {}
             Timber.e(e)
             return@coroutineScope Pair(
@@ -192,6 +235,9 @@ class DownloaderImpl(
                         File(context.filesDir, "images/${item.seriesId}").deleteRecursively()
                     }
                 }
+            }
+            is FindroidBook -> {
+                database.deleteBook(item.id)
             }
         }
 

@@ -30,12 +30,18 @@ import dev.jdtech.jellyfin.book.presentation.book.BookAction
 import dev.jdtech.jellyfin.book.presentation.book.BookState
 import dev.jdtech.jellyfin.book.presentation.book.BookViewModel
 import dev.jdtech.jellyfin.core.R as CoreR
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderAction
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderEvent
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderState
+import dev.jdtech.jellyfin.core.presentation.downloader.DownloaderViewModel
 import dev.jdtech.jellyfin.presentation.book.components.BookButtonsBar
 import dev.jdtech.jellyfin.presentation.film.components.ItemHeader
 import dev.jdtech.jellyfin.presentation.film.components.ItemTopBar
 import dev.jdtech.jellyfin.presentation.film.components.OverviewText
 import dev.jdtech.jellyfin.presentation.theme.spacings
+import dev.jdtech.jellyfin.presentation.utils.LocalOfflineMode
 import dev.jdtech.jellyfin.presentation.utils.rememberSafePadding
+import dev.jdtech.jellyfin.utils.ObserveAsEvents
 import java.util.UUID
 
 @Composable
@@ -44,16 +50,40 @@ fun BookScreen(
     navigateBack: () -> Unit,
     navigateHome: () -> Unit,
     viewModel: BookViewModel = hiltViewModel(),
+    downloaderViewModel: DownloaderViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val isOfflineMode = LocalOfflineMode.current
+
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val downloaderState by downloaderViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(bookId) {
         viewModel.loadBook(bookId = bookId)
     }
 
+    LaunchedEffect(state.book) {
+        state.book?.let { book -> downloaderViewModel.update(book) }
+    }
+
+    ObserveAsEvents(downloaderViewModel.events) { event ->
+        when (event) {
+            is DownloaderEvent.Successful -> {
+                viewModel.loadBook(bookId = bookId)
+            }
+            is DownloaderEvent.Deleted -> {
+                if (isOfflineMode) {
+                    navigateBack()
+                } else {
+                    viewModel.loadBook(bookId = bookId)
+                }
+            }
+        }
+    }
+
     BookScreenLayout(
         state = state,
+        downloaderState = downloaderState,
         onAction = { action ->
             when (action) {
                 is BookAction.OnReadClick -> {
@@ -70,6 +100,7 @@ fun BookScreen(
             }
             viewModel.onAction(action)
         },
+        onDownloaderAction = { action -> downloaderViewModel.onAction(action) },
         onHomeClick = navigateHome,
     )
 }
@@ -77,7 +108,9 @@ fun BookScreen(
 @Composable
 private fun BookScreenLayout(
     state: BookState,
+    downloaderState: DownloaderState,
     onAction: (BookAction) -> Unit,
+    onDownloaderAction: (DownloaderAction) -> Unit,
     onHomeClick: () -> Unit,
 ) {
     val safePadding = rememberSafePadding()
@@ -163,6 +196,7 @@ private fun BookScreenLayout(
 
                     BookButtonsBar(
                         book = book,
+                        downloaderState = downloaderState,
                         onReadClick = { onAction(BookAction.OnReadClick) },
                         onMarkAsPlayedClick = {
                             if (book.played) {
@@ -177,6 +211,15 @@ private fun BookScreenLayout(
                             } else {
                                 onAction(BookAction.MarkAsFavorite)
                             }
+                        },
+                        onDownloadClick = { storageIndex ->
+                            onDownloaderAction(DownloaderAction.Download(book, storageIndex))
+                        },
+                        onDownloadCancelClick = {
+                            onDownloaderAction(DownloaderAction.CancelDownload(book))
+                        },
+                        onDownloadDeleteClick = {
+                            onDownloaderAction(DownloaderAction.DeleteDownload(book))
                         },
                     )
 

@@ -581,6 +581,11 @@ class JellyfinRepositoryImpl(
                     .getShowsByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
                     .map { it.toFindroidShow(database, jellyfinApi.userId!!) }
             )
+            items.addAll(
+                database
+                    .getBooksByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
+                    .map { it.toFindroidBook(database, jellyfinApi.userId!!) }
+            )
             items
         }
 
