@@ -109,4 +109,14 @@
     <string name="download_paused">Paused</string>
     <string name="download_downloading">Downloading…</string>
     <string name="download_failed">Failed to download</string>
+    <string name="read">Read</string>
+    <string name="resume_reading">Resume</string>
+    <string name="read_button_description">Read the book</string>
+    <string name="author">Author</string>
+    <string name="authors">Authors</string>
+    <string name="books_label">Books</string>
+    <string name="downloading_book">Downloading book…</string>
+    <string name="table_of_contents">Table of Contents</string>
+    <string name="error_opening_book">Failed to open book</string>
+    <string name="no_toc_available">No table of contents available</string>
 </resources>

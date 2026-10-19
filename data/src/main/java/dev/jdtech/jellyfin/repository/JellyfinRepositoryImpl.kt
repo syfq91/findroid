@@ -6,6 +6,7 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -18,6 +19,7 @@ import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
 import dev.jdtech.jellyfin.models.toFindroidCollection
+import dev.jdtech.jellyfin.models.toFindroidBook
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidItem
 import dev.jdtech.jellyfin.models.toFindroidMovie
@@ -83,6 +85,14 @@ class JellyfinRepositoryImpl(
                 .getItem(itemId, jellyfinApi.userId!!)
                 .content
                 .toFindroidMovie(this@JellyfinRepositoryImpl, database)
+        }
+
+    override suspend fun getBook(itemId: UUID): FindroidBook =
+        withContext(Dispatchers.IO) {
+            jellyfinApi.libraryApi
+                .getItem(itemId, jellyfinApi.userId!!)
+                .content
+                .toFindroidBook(this@JellyfinRepositoryImpl, database)
         }
 
     override suspend fun getShow(itemId: UUID): FindroidShow =
@@ -537,6 +547,12 @@ class JellyfinRepositoryImpl(
     }
 
     override fun getBaseUrl() = jellyfinApi.api.baseUrl.orEmpty()
+ 
+    override fun getDownloadUrl(itemId: UUID): String {
+        val baseUrl = getBaseUrl().trimEnd('/')
+        val token = jellyfinApi.api.accessToken.orEmpty()
+        return "$baseUrl/Items/$itemId/Download?api_key=$token"
+    }
 
     override suspend fun updateDeviceName(name: String) {
         withContext(Dispatchers.IO) {

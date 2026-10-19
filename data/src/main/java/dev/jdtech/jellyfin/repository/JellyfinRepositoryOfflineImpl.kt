@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.paging.PagingData
 import dev.jdtech.jellyfin.api.JellyfinApi
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -52,6 +53,10 @@ class JellyfinRepositoryOfflineImpl(
         withContext(Dispatchers.IO) {
             database.getMovie(itemId).toFindroidMovie(database, jellyfinApi.userId!!)
         }
+
+    override suspend fun getBook(itemId: UUID): FindroidBook {
+        throw NotImplementedError("Offline books are not yet supported")
+    }
 
     override suspend fun getShow(itemId: UUID): FindroidShow =
         withContext(Dispatchers.IO) {
@@ -296,6 +301,10 @@ class JellyfinRepositoryOfflineImpl(
     }
 
     override fun getBaseUrl(): String {
+        return ""
+    }
+
+    override fun getDownloadUrl(itemId: UUID): String {
         return ""
     }
 

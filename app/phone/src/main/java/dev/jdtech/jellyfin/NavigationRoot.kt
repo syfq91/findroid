@@ -33,6 +33,7 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.models.CollectionType
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidBoxSet
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
@@ -43,6 +44,7 @@ import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.navigation.navigateOrReuse
 import dev.jdtech.jellyfin.navigation.resumedAction
+import dev.jdtech.jellyfin.presentation.book.BookScreen
 import dev.jdtech.jellyfin.presentation.film.CollectionScreen
 import dev.jdtech.jellyfin.presentation.film.DownloadsScreen
 import dev.jdtech.jellyfin.presentation.film.EpisodeScreen
@@ -445,6 +447,13 @@ private fun EntryProviderScope<NavKey>.mainEntries(
                 },
         )
     }
+    entry<BookRoute> { key ->
+        BookScreen(
+            bookId = UUID.fromString(key.bookId),
+            navigateBack = dropUnlessResumed { navigator.goBack() },
+            navigateHome = dropUnlessResumed { navigator.navigateHome() },
+        )
+    }
     entry<ShowRoute> { key ->
         ShowScreen(
             showId = UUID.fromString(key.showId),
@@ -540,6 +549,7 @@ private fun navigateToItem(navigator: Navigator, item: FindroidItem) {
             navigator.navigate(
                 CollectionRoute(collectionId = item.id.toString(), collectionName = item.name)
             )
+        is FindroidBook -> navigator.navigate(BookRoute(bookId = item.id.toString()))
         is FindroidMovie -> navigator.navigate(MovieRoute(movieId = item.id.toString()))
         is FindroidShow -> navigator.navigate(ShowRoute(showId = item.id.toString()))
         is FindroidSeason -> navigator.navigate(SeasonRoute(seasonId = item.id.toString()))

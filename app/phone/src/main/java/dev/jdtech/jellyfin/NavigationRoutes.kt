@@ -35,6 +35,8 @@ data class CollectionRoute(val collectionId: String, val collectionName: String)
 @Serializable data object FavoritesRoute : NavKey
 
 @Serializable data class MovieRoute(val movieId: String) : NavKey
+ 
+@Serializable data class BookRoute(val bookId: String) : NavKey
 
 @Serializable data class ShowRoute(val showId: String) : NavKey
 

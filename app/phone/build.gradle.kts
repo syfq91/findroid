@@ -87,7 +87,12 @@ dependencies {
     implementation(projects.player.local)
     implementation(projects.setup)
     implementation(projects.modes.film)
+    implementation(projects.modes.book)
     implementation(projects.settings)
+
+    implementation(libs.readium.shared)
+    implementation(libs.readium.streamer)
+    implementation(libs.readium.navigator)
 
     implementation(libs.aboutlibraries.core)
     implementation(libs.aboutlibraries.compose.m3)
