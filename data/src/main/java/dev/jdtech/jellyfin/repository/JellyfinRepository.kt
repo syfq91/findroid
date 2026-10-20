@@ -1,6 +1,7 @@
 package dev.jdtech.jellyfin.repository
 
 import androidx.paging.PagingData
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidCollection
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
@@ -28,6 +29,8 @@ interface JellyfinRepository {
     suspend fun getEpisode(itemId: UUID): FindroidEpisode
 
     suspend fun getMovie(itemId: UUID): FindroidMovie
+
+    suspend fun getBook(itemId: UUID): FindroidBook
 
     suspend fun getShow(itemId: UUID): FindroidShow
 
@@ -111,6 +114,8 @@ interface JellyfinRepository {
     suspend fun markAsUnplayed(itemId: UUID)
 
     fun getBaseUrl(): String
+ 
+    fun getDownloadUrl(itemId: UUID): String
 
     suspend fun updateDeviceName(name: String)
 

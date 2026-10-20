@@ -37,4 +37,14 @@ class Converters {
     fun fromStringToFindroidChapters(value: String?): List<FindroidChapter>? {
         return value?.let { Json.decodeFromString(value) }
     }
+
+    @ColumnTypeConverter
+    fun fromStringListToString(value: List<String>?): String? {
+        return value?.let { Json.encodeToString(value) }
+    }
+
+    @ColumnTypeConverter
+    fun fromStringToStringList(value: String?): List<String>? {
+        return value?.let { Json.decodeFromString(value) }
+    }
 }

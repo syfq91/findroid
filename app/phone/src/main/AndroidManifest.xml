@@ -30,6 +30,11 @@
             android:supportsPictureInPicture="true"
             android:autoRemoveFromRecents="true"
             android:theme="@style/Theme.Findroid.Player" />
+ 
+        <activity
+            android:name=".BookReaderActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|uiMode|keyboard|keyboardHidden|navigation"
+            android:theme="@style/Theme.Findroid" />
 
         <activity
             android:name=".MainActivity"

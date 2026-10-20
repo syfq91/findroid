@@ -7,6 +7,7 @@ import android.content.Intent
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.models.FindroidItem
+import dev.jdtech.jellyfin.models.toFindroidBook
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidMovie
 import dev.jdtech.jellyfin.models.toFindroidSource
@@ -49,6 +50,11 @@ class DownloadReceiver : BroadcastReceiver() {
                             items.addAll(
                                 database.getEpisodes().map {
                                     it.toFindroidEpisode(database, repository.getUserId())
+                                }
+                            )
+                            items.addAll(
+                                database.getBooks().map {
+                                    it.toFindroidBook(database, repository.getUserId())
                                 }
                             )
 
