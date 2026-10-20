@@ -13,9 +13,18 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.extractor.DefaultExtractorsFactory
+import io.github.peerless2012.ass.media.AssHandler
+import io.github.peerless2012.ass.media.AssHandlerConfig
+import io.github.peerless2012.ass.media.kt.withAssMkvSupport
+import io.github.peerless2012.ass.media.kt.withAssSupport
+import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
+import io.github.peerless2012.ass.media.type.AssRenderType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
@@ -56,6 +65,8 @@ constructor(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel(), Player.Listener {
     val player: Player
+    var assHandler: AssHandler? = null
+        private set
 
     private val _uiState =
         MutableStateFlow(
@@ -133,25 +144,55 @@ constructor(
         )
 
         val playerBackend = appPreferences.getValue(appPreferences.playerBackend)
+        val useExoLibass = appPreferences.getValue(appPreferences.playerExoLibass)
         player =
             when (playerBackend) {
                 "exoplayer" -> {
-                    val renderersFactory =
+                    val defaultRenderersFactory =
                         DefaultRenderersFactory(application)
                             .setExtensionRendererMode(
                                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                             )
-                    ExoPlayer.Builder(application, renderersFactory)
-                        .setAudioAttributes(audioAttributes, true)
-                        .setTrackSelector(trackSelector)
-                        .setSeekBackIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekBackInc)
-                        )
-                        .setSeekForwardIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekForwardInc)
-                        )
-                        .setPauseAtEndOfMediaItems(true)
-                        .build()
+                    val exoPlayerBuilder =
+                        ExoPlayer.Builder(application)
+                            .setAudioAttributes(audioAttributes, true)
+                            .setTrackSelector(trackSelector)
+                            .setSeekBackIncrementMs(
+                                appPreferences.getValue(appPreferences.playerSeekBackInc)
+                            )
+                            .setSeekForwardIncrementMs(
+                                appPreferences.getValue(appPreferences.playerSeekForwardInc)
+                            )
+                            .setPauseAtEndOfMediaItems(true)
+
+                    if (useExoLibass) {
+                        val handler =
+                            AssHandler(
+                                renderType = AssRenderType.OVERLAY_OPEN_GL,
+                                config = AssHandlerConfig(),
+                            )
+                        val assSubtitleParserFactory = AssSubtitleParserFactory(handler)
+                        val extractorsFactory =
+                            DefaultExtractorsFactory()
+                                .withAssMkvSupport(assSubtitleParserFactory, handler)
+                        val dataSourceFactory = DefaultDataSource.Factory(application)
+                        val mediaSourceFactory =
+                            DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+                                .setSubtitleParserFactory(assSubtitleParserFactory)
+
+                        exoPlayerBuilder
+                            .setRenderersFactory(defaultRenderersFactory.withAssSupport(handler))
+                            .setMediaSourceFactory(mediaSourceFactory)
+
+                        val builtPlayer = exoPlayerBuilder.build()
+                        handler.init(builtPlayer)
+                        assHandler = handler
+                        builtPlayer
+                    } else {
+                        exoPlayerBuilder
+                            .setRenderersFactory(defaultRenderersFactory)
+                            .build()
+                    }
                 }
                 "mpv" -> {
                     MPVPlayer.Builder(application)
@@ -271,6 +312,8 @@ constructor(
         playWhenReady = false
         playbackPosition = 0L
         currentMediaItemIndex = 0
+        assHandler?.release()
+        assHandler = null
         player.removeListener(this)
         player.release()
     }

@@ -38,6 +38,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
+import io.github.peerless2012.ass.media.kt.withAssSupport
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Glow
@@ -177,6 +178,9 @@ fun PlayerScreen(
                 PlayerView(context).also { playerView ->
                     playerView.player = viewModel.player
                     playerView.useController = false
+                    viewModel.assHandler?.let { handler ->
+                        playerView.subtitleView?.withAssSupport(handler)
+                    }
                     viewModel.initializePlayer(
                         itemId = itemId,
                         itemKind = itemKind,
