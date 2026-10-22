@@ -3,7 +3,6 @@ package dev.jdtech.jellyfin.book.presentation.book
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import java.util.UUID
 import javax.inject.Inject
@@ -13,11 +12,7 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 @HiltViewModel
-class BookViewModel
-@Inject
-constructor(
-    private val repository: JellyfinRepository,
-) : ViewModel() {
+class BookViewModel @Inject constructor(private val repository: JellyfinRepository) : ViewModel() {
     private val _state = MutableStateFlow(BookState())
     val state = _state.asStateFlow()
 

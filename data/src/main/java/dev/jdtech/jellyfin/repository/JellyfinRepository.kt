@@ -114,7 +114,7 @@ interface JellyfinRepository {
     suspend fun markAsUnplayed(itemId: UUID)
 
     fun getBaseUrl(): String
- 
+
     fun getDownloadUrl(itemId: UUID): String
 
     suspend fun updateDeviceName(name: String)

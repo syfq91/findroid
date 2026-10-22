@@ -33,6 +33,7 @@ timber = "5.0.1"
 slf4j = "2.0.20"
 slf4j-android = "2.0.20-0"
 readium = "3.4.0"
+desugar-jdk-libs = "2.1.5"
 
 [libraries]
 aboutlibraries-core = { group = "com.mikepenz", name = "aboutlibraries-core", version.ref = "aboutlibraries" }
@@ -91,6 +92,7 @@ slf4j-android = { group = "uk.uuid.slf4j", name = "slf4j-android", version.ref =
 readium-shared = { group = "org.readium.kotlin-toolkit", name = "readium-shared", version.ref = "readium" }
 readium-streamer = { group = "org.readium.kotlin-toolkit", name = "readium-streamer", version.ref = "readium" }
 readium-navigator = { group = "org.readium.kotlin-toolkit", name = "readium-navigator", version.ref = "readium" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar-jdk-libs" }
 
 [plugins]
 aboutlibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutlibraries" }

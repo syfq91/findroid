@@ -4,6 +4,7 @@ import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import java.util.UUID
 import org.jellyfin.sdk.model.api.BaseItemDto
+import org.jellyfin.sdk.model.api.PersonKind
 import org.jellyfin.sdk.model.api.PlayAccess
 
 data class FindroidBook(
@@ -57,7 +58,7 @@ suspend fun BaseItemDto.toFindroidBook(
                 name = name.orEmpty(),
                 type = FindroidSourceType.REMOTE,
                 path = jellyfinRepository.getDownloadUrl(id),
-                size = size ?: mediaSources?.firstOrNull()?.size ?: 0L,
+                size = mediaSources?.firstOrNull()?.size ?: 0L,
                 mediaStreams = emptyList(),
             )
         )
@@ -65,11 +66,12 @@ suspend fun BaseItemDto.toFindroidBook(
 
     val authors =
         people
-            ?.filter { it.type == "Author" || it.role?.contains("Author", ignoreCase = true) == true }
+            ?.filter {
+                it.type == PersonKind.AUTHOR ||
+                    it.role?.contains("Author", ignoreCase = true) == true
+            }
             ?.mapNotNull { it.name }
-            ?.ifEmpty { null }
-            ?: artistItems?.mapNotNull { it.name }
-            ?: emptyList()
+            ?.ifEmpty { null } ?: artistItems?.mapNotNull { it.name } ?: emptyList()
 
     return FindroidBook(
         id = id,

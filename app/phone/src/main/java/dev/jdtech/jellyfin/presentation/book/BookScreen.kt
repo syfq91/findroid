@@ -1,6 +1,5 @@
 package dev.jdtech.jellyfin.presentation.book
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,13 +57,9 @@ fun BookScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val downloaderState by downloaderViewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(bookId) {
-        viewModel.loadBook(bookId = bookId)
-    }
+    LaunchedEffect(bookId) { viewModel.loadBook(bookId = bookId) }
 
-    LaunchedEffect(state.book) {
-        state.book?.let { book -> downloaderViewModel.update(book) }
-    }
+    LaunchedEffect(state.book) { state.book?.let { book -> downloaderViewModel.update(book) } }
 
     ObserveAsEvents(downloaderViewModel.events) { event ->
         when (event) {
@@ -87,12 +82,13 @@ fun BookScreen(
         onAction = { action ->
             when (action) {
                 is BookAction.OnReadClick -> {
-                    val intent = BookReaderActivity.createIntent(
-                        context = context,
-                        bookId = bookId,
-                        bookTitle = state.book?.name.orEmpty(),
-                        container = state.book?.container,
-                    )
+                    val intent =
+                        BookReaderActivity.createIntent(
+                            context = context,
+                            bookId = bookId,
+                            bookTitle = state.book?.name.orEmpty(),
+                            container = state.book?.container,
+                        )
                     context.startActivity(intent)
                 }
                 is BookAction.OnBackClick -> navigateBack()
@@ -186,7 +182,9 @@ private fun BookScreenLayout(
                     book.seriesName?.let { series ->
                         Spacer(Modifier.height(MaterialTheme.spacings.extraSmall))
                         Text(
-                            text = if (book.seriesIndex != null) "$series #${book.seriesIndex}" else series,
+                            text =
+                                if (book.seriesIndex != null) "$series #${book.seriesIndex}"
+                                else series,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -226,7 +224,7 @@ private fun BookScreenLayout(
                     Spacer(Modifier.height(MaterialTheme.spacings.default))
 
                     if (book.overview.isNotBlank()) {
-                        OverviewText(overview = book.overview)
+                        OverviewText(text = book.overview)
                         Spacer(Modifier.height(MaterialTheme.spacings.default))
                     }
 
@@ -249,9 +247,10 @@ private fun BookScreenLayout(
             }
 
             ItemTopBar(
+                hasBackButton = true,
+                hasHomeButton = true,
                 onBackClick = { onAction(BookAction.OnBackClick) },
                 onHomeClick = onHomeClick,
-                scrollState = scrollState,
             )
         }
 

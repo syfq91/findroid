@@ -65,7 +65,9 @@ class DownloaderImpl(
                     val rawSource =
                         item.sources.firstOrNull { it.id == sourceId }
                             ?: try {
-                                jellyfinRepository.getMediaSources(item.id, true).firstOrNull { it.id == sourceId }
+                                jellyfinRepository.getMediaSources(item.id, true).firstOrNull {
+                                    it.id == sourceId
+                                }
                             } catch (_: Exception) {
                                 null
                             }
@@ -86,7 +88,8 @@ class DownloaderImpl(
                 } else {
                     jellyfinRepository.getMediaSources(item.id, true).first { it.id == sourceId }
                 }
-            val segments = if (item is FindroidBook) emptyList() else jellyfinRepository.getSegments(item.id)
+            val segments =
+                if (item is FindroidBook) emptyList() else jellyfinRepository.getSegments(item.id)
             val trickplayInfo =
                 if (item is FindroidSources && item !is FindroidBook) {
                     item.trickplayInfo?.get(sourceId)
@@ -188,7 +191,9 @@ class DownloaderImpl(
                 val source =
                     if (item is FindroidBook) {
                         item.sources.firstOrNull { it.id == sourceId }
-                            ?: jellyfinRepository.getMediaSources(item.id).firstOrNull { it.id == sourceId }
+                            ?: jellyfinRepository.getMediaSources(item.id).firstOrNull {
+                                it.id == sourceId
+                            }
                     } else {
                         jellyfinRepository.getMediaSources(item.id).first { it.id == sourceId }
                     }

@@ -35,7 +35,6 @@ import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
 import dagger.hilt.android.AndroidEntryPoint
 import dev.jdtech.jellyfin.databinding.ActivityPlayerBinding
-import io.github.peerless2012.ass.media.kt.withAssSupport
 import dev.jdtech.jellyfin.player.local.presentation.PlayerEvents
 import dev.jdtech.jellyfin.player.local.presentation.PlayerViewModel
 import dev.jdtech.jellyfin.presentation.player.SpeedSelectionDialogFragment
@@ -43,6 +42,7 @@ import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
+import io.github.peerless2012.ass.media.kt.withAssSupport
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.delay

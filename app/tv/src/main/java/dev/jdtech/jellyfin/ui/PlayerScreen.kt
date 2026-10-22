@@ -38,7 +38,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
-import io.github.peerless2012.ass.media.kt.withAssSupport
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Glow
@@ -56,6 +55,7 @@ import dev.jdtech.jellyfin.ui.components.player.VideoPlayerSeeker
 import dev.jdtech.jellyfin.ui.components.player.VideoPlayerState
 import dev.jdtech.jellyfin.ui.components.player.rememberVideoPlayerState
 import dev.jdtech.jellyfin.utils.handleDPadKeyEvents
+import io.github.peerless2012.ass.media.kt.withAssSupport
 import java.util.Locale
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds

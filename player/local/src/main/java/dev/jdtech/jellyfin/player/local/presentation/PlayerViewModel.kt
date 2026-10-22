@@ -19,12 +19,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
-import io.github.peerless2012.ass.media.AssHandler
-import io.github.peerless2012.ass.media.AssHandlerConfig
-import io.github.peerless2012.ass.media.kt.withAssMkvSupport
-import io.github.peerless2012.ass.media.kt.withAssSupport
-import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
-import io.github.peerless2012.ass.media.type.AssRenderType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
@@ -37,6 +31,12 @@ import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
+import io.github.peerless2012.ass.media.AssHandler
+import io.github.peerless2012.ass.media.AssHandlerConfig
+import io.github.peerless2012.ass.media.kt.withAssMkvSupport
+import io.github.peerless2012.ass.media.kt.withAssSupport
+import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
+import io.github.peerless2012.ass.media.type.AssRenderType
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.ceil
@@ -189,9 +189,7 @@ constructor(
                         assHandler = handler
                         builtPlayer
                     } else {
-                        exoPlayerBuilder
-                            .setRenderersFactory(defaultRenderersFactory)
-                            .build()
+                        exoPlayerBuilder.setRenderersFactory(defaultRenderersFactory).build()
                     }
                 }
                 "mpv" -> {

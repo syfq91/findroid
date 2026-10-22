@@ -18,8 +18,8 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
-import dev.jdtech.jellyfin.models.toFindroidCollection
 import dev.jdtech.jellyfin.models.toFindroidBook
+import dev.jdtech.jellyfin.models.toFindroidCollection
 import dev.jdtech.jellyfin.models.toFindroidEpisode
 import dev.jdtech.jellyfin.models.toFindroidItem
 import dev.jdtech.jellyfin.models.toFindroidMovie
@@ -547,7 +547,7 @@ class JellyfinRepositoryImpl(
     }
 
     override fun getBaseUrl() = jellyfinApi.api.baseUrl.orEmpty()
- 
+
     override fun getDownloadUrl(itemId: UUID): String {
         val baseUrl = getBaseUrl().trimEnd('/')
         val token = jellyfinApi.api.accessToken.orEmpty()

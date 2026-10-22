@@ -46,7 +46,12 @@ constructor(
                 CollectionType.Books -> listOf(BaseItemKind.BOOK)
                 CollectionType.Mixed,
                 CollectionType.Folders ->
-                    listOf(BaseItemKind.FOLDER, BaseItemKind.MOVIE, BaseItemKind.SERIES, BaseItemKind.BOOK)
+                    listOf(
+                        BaseItemKind.FOLDER,
+                        BaseItemKind.MOVIE,
+                        BaseItemKind.SERIES,
+                        BaseItemKind.BOOK,
+                    )
                 else -> null
             }
 

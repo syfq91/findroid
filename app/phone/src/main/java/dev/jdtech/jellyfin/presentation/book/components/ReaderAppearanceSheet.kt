@@ -10,13 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +69,7 @@ fun ReaderAppearanceSheet(
             modifier =
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 16.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
         ) {
             // Header
             Row(
@@ -232,12 +231,22 @@ fun ReaderAppearanceSheet(
                     FilterChip(
                         selected = state.fontFamily == "sans",
                         onClick = { onFontFamilyChanged("sans") },
-                        label = { Text(stringResource(CoreR.string.reader_font_sans), fontFamily = ComposeFontFamily.SansSerif) },
+                        label = {
+                            Text(
+                                stringResource(CoreR.string.reader_font_sans),
+                                fontFamily = ComposeFontFamily.SansSerif,
+                            )
+                        },
                     )
                     FilterChip(
                         selected = state.fontFamily == "serif",
                         onClick = { onFontFamilyChanged("serif") },
-                        label = { Text(stringResource(CoreR.string.reader_font_serif), fontFamily = ComposeFontFamily.Serif) },
+                        label = {
+                            Text(
+                                stringResource(CoreR.string.reader_font_serif),
+                                fontFamily = ComposeFontFamily.Serif,
+                            )
+                        },
                     )
                     FilterChip(
                         selected = state.fontFamily == "opendyslexic",
@@ -317,10 +326,7 @@ private fun ThemeCard(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier =
-            modifier
-                .height(48.dp)
-                .clickable(onClick = onClick),
+        modifier = modifier.height(48.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         color = backgroundColor,
         border =

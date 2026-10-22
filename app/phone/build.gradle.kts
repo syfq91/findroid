@@ -72,6 +72,18 @@ android {
         compose = true
     }
 
+    compileOptions {
+        // Required by the Readium dependencies (core library desugaring)
+        isCoreLibraryDesugaringEnabled = true
+    }
+
+    packaging {
+        jniLibs {
+            // libmpv and the libass bindings both bundle libc++_shared.so
+            pickFirsts += "**/libc++_shared.so"
+        }
+    }
+
     dependenciesInfo {
         // Disables dependency metadata when building APKs.
         includeInApk = false
@@ -81,6 +93,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(projects.core)
     implementation(projects.data)
     implementation(projects.player.core)

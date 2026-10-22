@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -108,7 +109,8 @@ fun BookButtonsBar(
                             } else {
                                 painterResource(CoreR.drawable.ic_heart)
                             },
-                        contentDescription = stringResource(CoreR.string.favorite_button_description),
+                        contentDescription =
+                            stringResource(CoreR.string.favorite_button_description),
                         tint = if (book.favorite) Color.Red else LocalContentColor.current,
                     )
                 }
@@ -157,18 +159,24 @@ fun BookButtonsBar(
         }
 
         if (storageSelectionDialogOpen) {
-            val locations = remember {
-                storageLocations.map { dir ->
-                    val locationStringRes =
-                        if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
-                        else CoreR.string.internal
-                    val locationString = context.getString(locationStringRes)
+            val resources = LocalResources.current
+            val locations =
+                remember(resources, storageLocations) {
+                    storageLocations.map { dir ->
+                        val locationStringRes =
+                            if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
+                            else CoreR.string.internal
+                        val locationString = resources.getString(locationStringRes)
 
-                    val stat = StatFs(dir.path)
-                    val availableMegaBytes = stat.availableBytes.div(1000000)
-                    context.getString(CoreR.string.storage_name, locationString, availableMegaBytes)
+                        val stat = StatFs(dir.path)
+                        val availableMegaBytes = stat.availableBytes.div(1000000)
+                        resources.getString(
+                            CoreR.string.storage_name,
+                            locationString,
+                            availableMegaBytes,
+                        )
+                    }
                 }
-            }
             StorageSelectionDialog(
                 storageLocations = locations,
                 onSelect = { storageIndex ->

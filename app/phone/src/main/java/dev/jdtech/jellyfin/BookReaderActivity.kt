@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
-import android.graphics.PointF
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -61,8 +61,12 @@ import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgression
-import org.readium.r2.shared.publication.asset.FileAsset
-import org.readium.r2.streamer.Streamer
+import org.readium.r2.shared.util.AbsoluteUrl
+import org.readium.r2.shared.util.asset.AssetRetriever
+import org.readium.r2.shared.util.getOrElse
+import org.readium.r2.shared.util.http.DefaultHttpClient
+import org.readium.r2.streamer.PublicationOpener
+import org.readium.r2.streamer.parser.DefaultPublicationParser
 import timber.log.Timber
 
 @OptIn(ExperimentalReadiumApi::class)
@@ -89,10 +93,12 @@ class BookReaderActivity : AppCompatActivity() {
         binding = ActivityBookReaderBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: run {
-            finish()
-            return
-        }
+        bookId =
+            intent.getStringExtra(EXTRA_BOOK_ID)
+                ?: run {
+                    finish()
+                    return
+                }
         bookUUID = UUID.fromString(bookId)
         bookTitle = intent.getStringExtra(EXTRA_BOOK_TITLE).orEmpty()
 
@@ -106,25 +112,15 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun setupControls() {
-        binding.buttonBack.setOnClickListener {
-            finish()
-        }
+        binding.buttonBack.setOnClickListener { finish() }
 
-        binding.buttonAppearance.setOnClickListener {
-            showAppearanceDialog()
-        }
+        binding.buttonAppearance.setOnClickListener { showAppearanceDialog() }
 
-        binding.buttonToc.setOnClickListener {
-            showTableOfContents()
-        }
+        binding.buttonToc.setOnClickListener { showTableOfContents() }
 
-        binding.buttonPrevPage.setOnClickListener {
-            navigator?.goBackward(animated = true)
-        }
+        binding.buttonPrevPage.setOnClickListener { navigator?.goBackward(animated = true) }
 
-        binding.buttonNextPage.setOnClickListener {
-            navigator?.goForward(animated = true)
-        }
+        binding.buttonNextPage.setOnClickListener { navigator?.goForward(animated = true) }
     }
 
     private fun toggleControls() {
@@ -157,43 +153,48 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun applyOrientation() {
-        requestedOrientation = when (appPreferences.getValue(appPreferences.readerOrientation)) {
-            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_USER
-        }
+        requestedOrientation =
+            when (appPreferences.getValue(appPreferences.readerOrientation)) {
+                "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                else -> ActivityInfo.SCREEN_ORIENTATION_USER
+            }
     }
 
     private fun updateBackgroundTheme() {
         val themeStr = appPreferences.getValue(appPreferences.readerTheme)
-        val color = when (themeStr) {
-            "light" -> Color.parseColor("#FAFAFA")
-            "sepia" -> Color.parseColor("#FBF0D9")
-            else -> Color.parseColor("#121212")
-        }
+        val color =
+            when (themeStr) {
+                "light" -> Color.parseColor("#FAFAFA")
+                "sepia" -> Color.parseColor("#FBF0D9")
+                else -> Color.parseColor("#121212")
+            }
         binding.readerRoot.setBackgroundColor(color)
     }
 
     private fun buildEpubPreferences(): EpubPreferences {
-        val theme = when (appPreferences.getValue(appPreferences.readerTheme)) {
-            "light" -> Theme.LIGHT
-            "sepia" -> Theme.SEPIA
-            else -> Theme.DARK
-        }
-        val fontFamily = when (appPreferences.getValue(appPreferences.readerFontFamily)) {
-            "serif" -> FontFamily.SERIF
-            "sans" -> FontFamily.SANS_SERIF
-            "opendyslexic" -> FontFamily.OPEN_DYSLEXIC
-            else -> null
-        }
+        val theme =
+            when (appPreferences.getValue(appPreferences.readerTheme)) {
+                "light" -> Theme.LIGHT
+                "sepia" -> Theme.SEPIA
+                else -> Theme.DARK
+            }
+        val fontFamily =
+            when (appPreferences.getValue(appPreferences.readerFontFamily)) {
+                "serif" -> FontFamily.SERIF
+                "sans" -> FontFamily.SANS_SERIF
+                "opendyslexic" -> FontFamily.OPEN_DYSLEXIC
+                else -> null
+            }
         val fontSize = appPreferences.getValue(appPreferences.readerFontSize).toDouble()
         val scroll = appPreferences.getValue(appPreferences.readerScroll)
 
-        val progression = when (appPreferences.getValue(appPreferences.readerReadingProgression)) {
-            "ltr" -> NavReadingProgression.LTR
-            "rtl" -> NavReadingProgression.RTL
-            else -> null
-        }
+        val progression =
+            when (appPreferences.getValue(appPreferences.readerReadingProgression)) {
+                "ltr" -> NavReadingProgression.LTR
+                "rtl" -> NavReadingProgression.RTL
+                else -> null
+            }
 
         return EpubPreferences(
             theme = theme,
@@ -213,65 +214,76 @@ class BookReaderActivity : AppCompatActivity() {
     private fun showAppearanceDialog() {
         val bottomSheet = BottomSheetDialog(this)
         val isImageBased = publication?.conformsTo(Publication.Profile.DIVINA) == true
-        val initialPrefs = ReaderPreferencesState(
-            fontSize = appPreferences.getValue(appPreferences.readerFontSize),
-            fontFamily = appPreferences.getValue(appPreferences.readerFontFamily),
-            theme = appPreferences.getValue(appPreferences.readerTheme),
-            scroll = appPreferences.getValue(appPreferences.readerScroll),
-            orientation = appPreferences.getValue(appPreferences.readerOrientation),
-            readingProgression = appPreferences.getValue(appPreferences.readerReadingProgression),
-            isImageBased = isImageBased,
-        )
+        val initialPrefs =
+            ReaderPreferencesState(
+                fontSize = appPreferences.getValue(appPreferences.readerFontSize),
+                fontFamily = appPreferences.getValue(appPreferences.readerFontFamily),
+                theme = appPreferences.getValue(appPreferences.readerTheme),
+                scroll = appPreferences.getValue(appPreferences.readerScroll),
+                orientation = appPreferences.getValue(appPreferences.readerOrientation),
+                readingProgression =
+                    appPreferences.getValue(appPreferences.readerReadingProgression),
+                isImageBased = isImageBased,
+            )
 
-        val composeView = ComposeView(this).apply {
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setContent {
-                var sheetState by remember { mutableStateOf(initialPrefs) }
-                FindroidTheme {
-                    ReaderAppearanceSheet(
-                        state = sheetState,
-                        onFontSizeChanged = { newSize ->
-                            sheetState = sheetState.copy(fontSize = newSize)
-                            appPreferences.setValue(appPreferences.readerFontSize, newSize)
-                            applyPreferences()
-                        },
-                        onFontFamilyChanged = { newFont ->
-                            sheetState = sheetState.copy(fontFamily = newFont)
-                            appPreferences.setValue(appPreferences.readerFontFamily, newFont)
-                            applyPreferences()
-                        },
-                        onThemeChanged = { newTheme ->
-                            sheetState = sheetState.copy(theme = newTheme)
-                            appPreferences.setValue(appPreferences.readerTheme, newTheme)
-                            applyPreferences()
-                        },
-                        onScrollChanged = { newScroll ->
-                            sheetState = sheetState.copy(scroll = newScroll)
-                            appPreferences.setValue(appPreferences.readerScroll, newScroll)
-                            applyPreferences()
-                        },
-                        onOrientationChanged = { newOrientation ->
-                            sheetState = sheetState.copy(orientation = newOrientation)
-                            appPreferences.setValue(appPreferences.readerOrientation, newOrientation)
-                            applyOrientation()
-                        },
-                        onProgressionChanged = { newProgression ->
-                            sheetState = sheetState.copy(readingProgression = newProgression)
-                            appPreferences.setValue(appPreferences.readerReadingProgression, newProgression)
-                            applyReadingProgression()
-                            val pub = publication
-                            if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
-                                val currentLoc = navigator?.currentLocator?.value
-                                initDivinaNavigator(pub, currentLoc, savedInstanceState = null)
-                            } else {
+        val composeView =
+            ComposeView(this).apply {
+                setViewCompositionStrategy(
+                    ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+                )
+                setContent {
+                    var sheetState by remember { mutableStateOf(initialPrefs) }
+                    FindroidTheme {
+                        ReaderAppearanceSheet(
+                            state = sheetState,
+                            onFontSizeChanged = { newSize ->
+                                sheetState = sheetState.copy(fontSize = newSize)
+                                appPreferences.setValue(appPreferences.readerFontSize, newSize)
                                 applyPreferences()
-                            }
-                        },
-                        onDismiss = { bottomSheet.dismiss() },
-                    )
+                            },
+                            onFontFamilyChanged = { newFont ->
+                                sheetState = sheetState.copy(fontFamily = newFont)
+                                appPreferences.setValue(appPreferences.readerFontFamily, newFont)
+                                applyPreferences()
+                            },
+                            onThemeChanged = { newTheme ->
+                                sheetState = sheetState.copy(theme = newTheme)
+                                appPreferences.setValue(appPreferences.readerTheme, newTheme)
+                                applyPreferences()
+                            },
+                            onScrollChanged = { newScroll ->
+                                sheetState = sheetState.copy(scroll = newScroll)
+                                appPreferences.setValue(appPreferences.readerScroll, newScroll)
+                                applyPreferences()
+                            },
+                            onOrientationChanged = { newOrientation ->
+                                sheetState = sheetState.copy(orientation = newOrientation)
+                                appPreferences.setValue(
+                                    appPreferences.readerOrientation,
+                                    newOrientation,
+                                )
+                                applyOrientation()
+                            },
+                            onProgressionChanged = { newProgression ->
+                                sheetState = sheetState.copy(readingProgression = newProgression)
+                                appPreferences.setValue(
+                                    appPreferences.readerReadingProgression,
+                                    newProgression,
+                                )
+                                applyReadingProgression()
+                                val pub = publication
+                                if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
+                                    val currentLoc = navigator?.currentLocator?.value
+                                    initDivinaNavigator(pub, currentLoc, savedInstanceState = null)
+                                } else {
+                                    applyPreferences()
+                                }
+                            },
+                            onDismiss = { bottomSheet.dismiss() },
+                        )
+                    }
                 }
             }
-        }
 
         bottomSheet.setContentView(composeView)
         bottomSheet.show()
@@ -288,85 +300,109 @@ class BookReaderActivity : AppCompatActivity() {
                 Timber.e(e, "Error opening book $bookId")
                 binding.loadingLayout.isVisible = false
                 Toast.makeText(
-                    this@BookReaderActivity,
-                    e.localizedMessage ?: getString(CoreR.string.error_opening_book),
-                    Toast.LENGTH_LONG
-                ).show()
+                        this@BookReaderActivity,
+                        e.localizedMessage ?: getString(CoreR.string.error_opening_book),
+                        Toast.LENGTH_LONG,
+                    )
+                    .show()
                 finish()
             }
         }
     }
 
-    private suspend fun prepareBookFile(): File = withContext(Dispatchers.IO) {
-        var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
-        try {
-            val book = jellyfinRepository.getBook(bookUUID)
-            if (container.isNullOrBlank()) {
-                container = book.container
-            }
-            val localSource = book.sources.firstOrNull { it.type == FindroidSourceType.LOCAL }
-            if (localSource != null) {
-                val localFile = File(localSource.path)
-                if (localFile.exists() && localFile.length() > 0) {
-                    Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
-                    return@withContext localFile
+    private suspend fun prepareBookFile(): File =
+        withContext(Dispatchers.IO) {
+            var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
+            try {
+                val book = jellyfinRepository.getBook(bookUUID)
+                if (container.isNullOrBlank()) {
+                    container = book.container
                 }
-            }
-        } catch (e: Exception) {
-            Timber.w(e, "Could not fetch book details or local source")
-        }
-
-        val booksDir = File(cacheDir, "books").apply { mkdirs() }
-        val rawExtension = container?.lowercase()?.removePrefix(".") ?: "epub"
-        val extension = when (rawExtension) {
-            "cbz", "cbr", "zip", "rar" -> rawExtension
-            else -> "epub"
-        }
-
-        val targetFile = File(booksDir, "$bookId.$extension")
-        if (targetFile.exists() && targetFile.length() > 0) {
-            return@withContext targetFile
-        }
-
-        val existing = booksDir.listFiles { _, name ->
-            name.startsWith("$bookId.") && !name.endsWith(".tmp")
-        }?.firstOrNull { it.length() > 0 }
-        if (existing != null) {
-            return@withContext existing
-        }
-
-        val downloadUrl = jellyfinRepository.getDownloadUrl(bookUUID)
-        val tempFile = File(booksDir, "$bookId.$extension.tmp")
-
-        val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000
-            readTimeout = 30000
-            connect()
-        }
-
-        if (connection.responseCode in 200..299) {
-            connection.inputStream.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
+                val localSource = book.sources.firstOrNull { it.type == FindroidSourceType.LOCAL }
+                if (localSource != null) {
+                    val localFile = File(localSource.path)
+                    if (localFile.exists() && localFile.length() > 0) {
+                        Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
+                        return@withContext localFile
+                    }
                 }
+            } catch (e: Exception) {
+                Timber.w(e, "Could not fetch book details or local source")
             }
-            if (targetFile.exists()) targetFile.delete()
-            tempFile.renameTo(targetFile)
-            targetFile
-        } else {
-            tempFile.delete()
-            throw IOException("Download failed with HTTP ${connection.responseCode}")
-        }
-    }
 
-    private fun openPublication(file: File, savedInstanceState: Bundle?) {
-        val streamer = Streamer(this@BookReaderActivity)
-        val pub = streamer.open(FileAsset(file), allowUserInteraction = false).getOrThrow()
+            val booksDir = File(cacheDir, "books").apply { mkdirs() }
+            val rawExtension = container?.lowercase()?.removePrefix(".") ?: "epub"
+            val extension =
+                when (rawExtension) {
+                    "cbz",
+                    "cbr",
+                    "zip",
+                    "rar" -> rawExtension
+                    else -> "epub"
+                }
+
+            val targetFile = File(booksDir, "$bookId.$extension")
+            if (targetFile.exists() && targetFile.length() > 0) {
+                return@withContext targetFile
+            }
+
+            val existing =
+                booksDir
+                    .listFiles { _, name -> name.startsWith("$bookId.") && !name.endsWith(".tmp") }
+                    ?.firstOrNull { it.length() > 0 }
+            if (existing != null) {
+                return@withContext existing
+            }
+
+            val downloadUrl = jellyfinRepository.getDownloadUrl(bookUUID)
+            val tempFile = File(booksDir, "$bookId.$extension.tmp")
+
+            val connection =
+                (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    connect()
+                }
+
+            if (connection.responseCode in 200..299) {
+                connection.inputStream.use { input ->
+                    FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+                }
+                if (targetFile.exists()) targetFile.delete()
+                tempFile.renameTo(targetFile)
+                targetFile
+            } else {
+                tempFile.delete()
+                throw IOException("Download failed with HTTP ${connection.responseCode}")
+            }
+        }
+
+    private suspend fun openPublication(file: File, savedInstanceState: Bundle?) {
+        val httpClient = DefaultHttpClient()
+        val assetRetriever = AssetRetriever(contentResolver, httpClient)
+        val asset =
+            assetRetriever.retrieve(file).getOrElse {
+                throw IOException("Failed to read book file: $it")
+            }
+        val streamer =
+            PublicationOpener(
+                DefaultPublicationParser(
+                    context = this,
+                    httpClient = httpClient,
+                    assetRetriever = assetRetriever,
+                    pdfFactory = null,
+                )
+            )
+        val pub =
+            streamer.open(asset, allowUserInteraction = false).getOrElse {
+                throw IOException("Failed to open book: $it")
+            }
         this.publication = pub
 
         applyReadingProgression(pub)
 
-        val savedLocatorJson = appPreferences.sharedPreferences.getString(KEY_LOCATOR_PREFIX + bookId, null)
+        val savedLocatorJson =
+            appPreferences.sharedPreferences.getString(KEY_LOCATOR_PREFIX + bookId, null)
         val initialLocator = savedLocatorJson?.let {
             try {
                 Locator.fromJSON(JSONObject(it))
@@ -383,72 +419,94 @@ class BookReaderActivity : AppCompatActivity() {
         }
     }
 
-    private fun initDivinaNavigator(pub: Publication, initialLocator: Locator?, savedInstanceState: Bundle?) {
-        supportFragmentManager.fragmentFactory = ImageNavigatorFragment.createFactory(
-            publication = pub,
-            initialLocator = initialLocator,
-            listener = object : ImageNavigatorFragment.Listener {}
-        )
+    private fun initDivinaNavigator(
+        pub: Publication,
+        initialLocator: Locator?,
+        savedInstanceState: Bundle?,
+    ) {
+        supportFragmentManager.fragmentFactory =
+            ImageNavigatorFragment.createFactory(
+                publication = pub,
+                initialLocator = initialLocator,
+                listener = object : ImageNavigatorFragment.Listener {},
+            )
 
-        val fragment = if (savedInstanceState == null) {
-            val created = supportFragmentManager.fragmentFactory.instantiate(
-                classLoader,
-                ImageNavigatorFragment::class.java.name
-            ) as ImageNavigatorFragment
-            supportFragmentManager.beginTransaction()
-                .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
-                .commit()
-            created
-        } else {
-            supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? ImageNavigatorFragment
-                ?: (supportFragmentManager.fragmentFactory.instantiate(
-                    classLoader,
-                    ImageNavigatorFragment::class.java.name
-                ) as ImageNavigatorFragment).also { created ->
-                    supportFragmentManager.beginTransaction()
-                        .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
-                        .commit()
-                }
-        }
+        val fragment =
+            if (savedInstanceState == null) {
+                val created =
+                    supportFragmentManager.fragmentFactory.instantiate(
+                        classLoader,
+                        ImageNavigatorFragment::class.java.name,
+                    ) as ImageNavigatorFragment
+                supportFragmentManager
+                    .beginTransaction()
+                    .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                    .commit()
+                created
+            } else {
+                supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? ImageNavigatorFragment
+                    ?: (supportFragmentManager.fragmentFactory.instantiate(
+                            classLoader,
+                            ImageNavigatorFragment::class.java.name,
+                        ) as ImageNavigatorFragment)
+                        .also { created ->
+                            supportFragmentManager
+                                .beginTransaction()
+                                .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                                .commit()
+                        }
+            }
 
         this.navigator = fragment
         setupInputListener(fragment)
         observeNavigator()
     }
 
-    private fun initEpubNavigator(pub: Publication, initialLocator: Locator?, savedInstanceState: Bundle?) {
+    private fun initEpubNavigator(
+        pub: Publication,
+        initialLocator: Locator?,
+        savedInstanceState: Bundle?,
+    ) {
         val navigatorFactory = EpubNavigatorFactory(pub)
-        supportFragmentManager.fragmentFactory = navigatorFactory.createFragmentFactory(
-            initialLocator = initialLocator,
-            initialPreferences = buildEpubPreferences(),
-            listener = object : EpubNavigatorFragment.Listener {
-                override fun onTap(point: PointF): Boolean {
-                    toggleControls()
-                    return true
-                }
-            }
-        )
+        supportFragmentManager.fragmentFactory =
+            navigatorFactory.createFragmentFactory(
+                initialLocator = initialLocator,
+                initialPreferences = buildEpubPreferences(),
+                listener =
+                    object : EpubNavigatorFragment.Listener {
+                        override fun onExternalLinkActivated(url: AbsoluteUrl) {
+                            runCatching {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+                            }
+                        }
+                    },
+            )
 
-        val fragment = if (savedInstanceState == null) {
-            val created = supportFragmentManager.fragmentFactory.instantiate(
-                classLoader,
-                EpubNavigatorFragment::class.java.name
-            ) as EpubNavigatorFragment
-            supportFragmentManager.beginTransaction()
-                .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
-                .commit()
-            created
-        } else {
-            supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? EpubNavigatorFragment
-                ?: (supportFragmentManager.fragmentFactory.instantiate(
-                    classLoader,
-                    EpubNavigatorFragment::class.java.name
-                ) as EpubNavigatorFragment).also { created ->
-                    supportFragmentManager.beginTransaction()
-                        .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
-                        .commit()
-                }
-        }
+        val fragment =
+            if (savedInstanceState == null) {
+                val created =
+                    supportFragmentManager.fragmentFactory.instantiate(
+                        classLoader,
+                        EpubNavigatorFragment::class.java.name,
+                    ) as EpubNavigatorFragment
+                supportFragmentManager
+                    .beginTransaction()
+                    .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                    .commit()
+                created
+            } else {
+                supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? EpubNavigatorFragment
+                    ?: (supportFragmentManager.fragmentFactory.instantiate(
+                            classLoader,
+                            EpubNavigatorFragment::class.java.name,
+                        ) as EpubNavigatorFragment)
+                        .also { created ->
+                            supportFragmentManager
+                                .beginTransaction()
+                                .replace(binding.fragmentContainer.id, created, TAG_NAVIGATOR)
+                                .commit()
+                        }
+            }
 
         this.navigator = fragment
         setupInputListener(fragment)
@@ -456,12 +514,14 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun setupInputListener(nav: OverflowableNavigator) {
-        nav.addInputListener(object : InputListener {
-            override fun onTap(event: TapEvent): Boolean {
-                toggleControls()
-                return true
+        nav.addInputListener(
+            object : InputListener {
+                override fun onTap(event: TapEvent): Boolean {
+                    toggleControls()
+                    return true
+                }
             }
-        })
+        )
     }
 
     private fun observeNavigator() {
@@ -469,9 +529,7 @@ class BookReaderActivity : AppCompatActivity() {
         locatorJob?.cancel()
         locatorJob = lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                nav.currentLocator.collect { locator ->
-                    onLocatorChanged(locator)
-                }
+                nav.currentLocator.collect { locator -> onLocatorChanged(locator) }
             }
         }
     }
@@ -481,12 +539,11 @@ class BookReaderActivity : AppCompatActivity() {
         val percent = (progression * 100).toInt()
         binding.textProgress.text = "$percent%"
 
-        locator.title?.let {
-            if (it.isNotBlank()) binding.textChapterTitle.text = it
-        }
+        locator.title?.let { if (it.isNotBlank()) binding.textChapterTitle.text = it }
 
         // Persist local reading position
-        appPreferences.sharedPreferences.edit()
+        appPreferences.sharedPreferences
+            .edit()
             .putString(KEY_LOCATOR_PREFIX + bookId, locator.toJSON().toString())
             .apply()
 
@@ -503,18 +560,20 @@ class BookReaderActivity : AppCompatActivity() {
 
     private fun showTableOfContents() {
         val pub = publication ?: return
-        val toc = if (pub.tableOfContents.isNotEmpty()) {
-            pub.tableOfContents
-        } else if (pub.conformsTo(Publication.Profile.DIVINA)) {
-            pub.readingOrder.mapIndexed { index, link ->
-                link.copy(title = link.title ?: "Page ${index + 1}")
+        val toc =
+            if (pub.tableOfContents.isNotEmpty()) {
+                pub.tableOfContents
+            } else if (pub.conformsTo(Publication.Profile.DIVINA)) {
+                pub.readingOrder.mapIndexed { index, link ->
+                    link.copy(title = link.title ?: "Page ${index + 1}")
+                }
+            } else {
+                emptyList()
             }
-        } else {
-            emptyList()
-        }
 
         if (toc.isEmpty()) {
-            Toast.makeText(this, getString(CoreR.string.no_toc_available), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(CoreR.string.no_toc_available), Toast.LENGTH_SHORT)
+                .show()
             return
         }
 
@@ -527,7 +586,10 @@ class BookReaderActivity : AppCompatActivity() {
         }
         flatten(toc)
 
-        val titles = flattenedLinks.map { it.title?.ifBlank { it.href.toString() } ?: it.href.toString() }.toTypedArray()
+        val titles =
+            flattenedLinks
+                .map { it.title?.ifBlank { it.href.toString() } ?: it.href.toString() }
+                .toTypedArray()
 
         AlertDialog.Builder(this)
             .setTitle(getString(CoreR.string.table_of_contents))
