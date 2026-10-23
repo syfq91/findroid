@@ -119,10 +119,9 @@ interface JellyfinRepository {
     fun getDownloadUrl(itemId: UUID): String
 
     /**
-     * Opens an authenticated stream to the item's download using an `Authorization` header,
-     * rather than embedding the access token in the URL. Callers that can send headers should
-     * prefer this over [getDownloadUrl]; the token in a URL can leak into logs and error
-     * messages.
+     * Opens an authenticated stream to the item's download using an `Authorization` header, rather
+     * than embedding the access token in the URL. Callers that can send headers should prefer this
+     * over [getDownloadUrl]; the token in a URL can leak into logs and error messages.
      */
     suspend fun openDownloadStream(itemId: UUID): InputStream
 

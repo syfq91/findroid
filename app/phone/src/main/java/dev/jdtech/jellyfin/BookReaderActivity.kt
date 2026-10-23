@@ -413,8 +413,8 @@ class BookReaderActivity : AppCompatActivity() {
 
     /**
      * Returns the locator to open the book at. The local locator is authoritative when present,
-     * since it is more precise. Otherwise fall back to the reading position the server has for
-     * this book so a book read on another device resumes near where it was left off.
+     * since it is more precise. Otherwise fall back to the reading position the server has for this
+     * book so a book read on another device resumes near where it was left off.
      */
     private suspend fun restoreLocator(pub: Publication, serverPositionTicks: Long): Locator? {
         val savedLocatorJson =
@@ -438,8 +438,8 @@ class BookReaderActivity : AppCompatActivity() {
      * The reader posts `ticks = progression * VIRTUAL_TICKS_TOTAL`, so the inverse is
      * `playbackPositionTicks / VIRTUAL_TICKS_TOTAL` — a synthetic scale unrelated to the runtime
      * Jellyfin reports for a book. Readium 3.4 has no `locatorFromProgression`, so map the
-     * progression onto the positions service the publication opener registered (EpubPositionsService
-     * for EPUB, PerResourcePositionsService for Divina).
+     * progression onto the positions service the publication opener registered
+     * (EpubPositionsService for EPUB, PerResourcePositionsService for Divina).
      */
     private suspend fun locatorFromServerProgress(
         pub: Publication,
@@ -570,26 +570,23 @@ class BookReaderActivity : AppCompatActivity() {
     private fun observeNavigator() {
         val nav = navigator ?: return
         locatorJob?.cancel()
-        locatorJob =
-            lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    coroutineScope {
-                        // Keep the UI and the locally persisted locator in sync immediately:
-                        // the local position is what powers instant resume.
-                        launch {
-                            nav.currentLocator.collect { locator -> onLocatorChanged(locator) }
-                        }
-                        // Debounce the server sync so a long read does not send one request
-                        // per page turn (or per scroll step in continuous mode).
-                        launch {
-                            nav.currentLocator
-                                .distinctUntilChangedBy { it.locations.totalProgression }
-                                .debounce(PLAYBACK_PROGRESS_DEBOUNCE_MS)
-                                .collect { locator -> postProgress(locator) }
-                        }
+        locatorJob = lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                coroutineScope {
+                    // Keep the UI and the locally persisted locator in sync immediately:
+                    // the local position is what powers instant resume.
+                    launch { nav.currentLocator.collect { locator -> onLocatorChanged(locator) } }
+                    // Debounce the server sync so a long read does not send one request
+                    // per page turn (or per scroll step in continuous mode).
+                    launch {
+                        nav.currentLocator
+                            .distinctUntilChangedBy { it.locations.totalProgression }
+                            .debounce(PLAYBACK_PROGRESS_DEBOUNCE_MS)
+                            .collect { locator -> postProgress(locator) }
                     }
                 }
             }
+        }
     }
 
     private fun onLocatorChanged(locator: Locator) {
@@ -693,9 +690,9 @@ class BookReaderActivity : AppCompatActivity() {
         private const val VIRTUAL_TICKS_TOTAL = 1_000_000_000L
 
         /**
-         * How long to wait after the last locator change before reporting progress to the
-         * server. The local position is written on every change; only the network sync is
-         * debounced so a long read does not produce one request per page.
+         * How long to wait after the last locator change before reporting progress to the server.
+         * The local position is written on every change; only the network sync is debounced so a
+         * long read does not produce one request per page.
          */
         private const val PLAYBACK_PROGRESS_DEBOUNCE_MS = 5_000L
 

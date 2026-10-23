@@ -60,9 +60,9 @@ constructor(
     val player: Player
 
     /**
-     * Handler for the libass subtitle renderer, or null when libass is not in use (mpv backend,
-     * or libass disabled). Kept private so the libass types do not leak past this module; the
-     * app layers attach the subtitle overlay through [attachSubtitleOverlay].
+     * Handler for the libass subtitle renderer, or null when libass is not in use (mpv backend, or
+     * libass disabled). Kept private so the libass types do not leak past this module; the app
+     * layers attach the subtitle overlay through [attachSubtitleOverlay].
      */
     private var assHandler: AssHandler? = null
 
@@ -231,9 +231,9 @@ constructor(
     /**
      * Attaches the libass subtitle overlay to the player's [SubtitleView].
      *
-     * This keeps the libass types inside `player/local`: the app modules pass their
-     * `SubtitleView` and never name an `io.github.peerless2012.*` type themselves. Does nothing
-     * when libass is not in use (mpv backend, or the libass preference disabled).
+     * This keeps the libass types inside `player/local`: the app modules pass their `SubtitleView`
+     * and never name an `io.github.peerless2012.*` type themselves. Does nothing when libass is not
+     * in use (mpv backend, or the libass preference disabled).
      */
     fun attachSubtitleOverlay(subtitleView: SubtitleView?) {
         val handler = assHandler ?: return

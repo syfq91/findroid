@@ -18,16 +18,16 @@ import io.github.peerless2012.ass.media.type.AssRenderType
 /**
  * Builds the ExoPlayer used by [PlayerViewModel].
  *
- * Kept out of the ViewModel so the wiring is unit-testable in isolation. The libass wiring
- * matches the library's own `buildWithAssSupport` recipe: an ASS-aware extractors factory, a
- * subtitle parser factory, ASS-aware renderers, and an initialised [AssHandler].
+ * Kept out of the ViewModel so the wiring is unit-testable in isolation. The libass wiring matches
+ * the library's own `buildWithAssSupport` recipe: an ASS-aware extractors factory, a subtitle
+ * parser factory, ASS-aware renderers, and an initialised [AssHandler].
  */
 internal object ExoPlayerFactory {
     /**
      * Creates an ExoPlayer.
      *
-     * @return the built player paired with its [AssHandler] when [useLibass] is true, or null
-     * when libass is disabled.
+     * @return the built player paired with its [AssHandler] when [useLibass] is true, or null when
+     *   libass is disabled.
      */
     fun create(
         context: Context,
