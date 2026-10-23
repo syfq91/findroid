@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin.film.presentation.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.core.presentation.capability.ItemCapabilities
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.film.R as FilmR
 import dev.jdtech.jellyfin.models.CollectionType
@@ -27,6 +28,7 @@ constructor(
     val repository: JellyfinRepository,
     val appPreferences: AppPreferences,
     val database: ServerDatabaseDao,
+    val itemCapabilities: ItemCapabilities,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state = _state.asStateFlow()
@@ -133,8 +135,11 @@ constructor(
                 repository
                     .getUserViews()
                     .filter { view ->
-                        CollectionType.fromString(view.collectionType?.serialName) in
-                            CollectionType.supported
+                        val collectionType =
+                            CollectionType.fromString(view.collectionType?.serialName)
+                        collectionType in CollectionType.supported &&
+                            (collectionType != CollectionType.Books ||
+                                itemCapabilities.supportsBooks)
                     }
                     .map { view -> view to repository.getLatestMedia(view.id) }
                     .filter { (_, latest) -> latest.isNotEmpty() }

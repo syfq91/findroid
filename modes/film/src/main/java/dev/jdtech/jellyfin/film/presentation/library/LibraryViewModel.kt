@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.cachedIn
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.jdtech.jellyfin.core.presentation.capability.ItemCapabilities
 import dev.jdtech.jellyfin.models.CollectionType
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
@@ -13,6 +14,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import org.jellyfin.sdk.model.api.BaseItemKind
 
@@ -22,6 +24,7 @@ class LibraryViewModel
 constructor(
     private val jellyfinRepository: JellyfinRepository,
     private val appPreferences: AppPreferences,
+    private val itemCapabilities: ItemCapabilities,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LibraryState())
     val state = _state.asStateFlow()
@@ -38,6 +41,14 @@ constructor(
     }
 
     fun loadItems() {
+        // A Books library is only reachable through the home views or a folder drill-down.
+        // Both are filtered from TV already, but guard the dedicated branch so an
+        // unsupported app never emits book cards even if it navigates here.
+        if (libraryType == CollectionType.Books && !itemCapabilities.supportsBooks) {
+            _state.tryEmit(_state.value.copy(isLoading = false, error = null, items = emptyFlow()))
+            return
+        }
+
         val itemType =
             when (libraryType) {
                 CollectionType.Movies -> listOf(BaseItemKind.MOVIE)
@@ -50,8 +61,9 @@ constructor(
                         BaseItemKind.FOLDER,
                         BaseItemKind.MOVIE,
                         BaseItemKind.SERIES,
-                        BaseItemKind.BOOK,
-                    )
+                    ) +
+                        if (itemCapabilities.supportsBooks) listOf(BaseItemKind.BOOK)
+                        else emptyList()
                 else -> null
             }
 

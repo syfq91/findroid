@@ -7,6 +7,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.jdtech.jellyfin.BaseApplication
+import dev.jdtech.jellyfin.core.presentation.capability.ItemCapabilities
 import javax.inject.Singleton
 
 @Module
@@ -17,4 +18,11 @@ object AppModule {
     fun provideApplication(@ApplicationContext app: Context): BaseApplication {
         return app as BaseApplication
     }
+
+    @Singleton
+    @Provides
+    fun provideItemCapabilities(): ItemCapabilities =
+        object : ItemCapabilities {
+            override val supportsBooks = true
+        }
 }
