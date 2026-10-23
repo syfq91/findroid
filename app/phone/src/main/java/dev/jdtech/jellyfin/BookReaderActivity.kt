@@ -65,6 +65,7 @@ import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgression
+import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.util.AbsoluteUrl
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.getOrElse
@@ -297,8 +298,8 @@ class BookReaderActivity : AppCompatActivity() {
         lifecycleScope.launch {
             binding.loadingLayout.isVisible = true
             try {
-                val bookFile = prepareBookFile()
-                openPublication(bookFile, savedInstanceState)
+                val prepared = prepareBookFile()
+                openPublication(prepared, savedInstanceState)
                 binding.loadingLayout.isVisible = false
             } catch (e: Exception) {
                 Timber.e(e, "Error opening book $bookId")
@@ -314,11 +315,13 @@ class BookReaderActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun prepareBookFile(): File =
+    private suspend fun prepareBookFile(): PreparedBook =
         withContext(Dispatchers.IO) {
             var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
+            var serverPositionTicks = 0L
             try {
                 val book = jellyfinRepository.getBook(bookUUID)
+                serverPositionTicks = book.playbackPositionTicks
                 if (container.isNullOrBlank()) {
                     container = book.container
                 }
@@ -327,7 +330,7 @@ class BookReaderActivity : AppCompatActivity() {
                     val localFile = File(localSource.path)
                     if (localFile.exists() && localFile.length() > 0) {
                         Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
-                        return@withContext localFile
+                        return@withContext PreparedBook(localFile, serverPositionTicks)
                     }
                 }
             } catch (e: Exception) {
@@ -347,7 +350,7 @@ class BookReaderActivity : AppCompatActivity() {
 
             val targetFile = File(booksDir, "$bookId.$extension")
             if (targetFile.exists() && targetFile.length() > 0) {
-                return@withContext targetFile
+                return@withContext PreparedBook(targetFile, serverPositionTicks)
             }
 
             val existing =
@@ -355,7 +358,7 @@ class BookReaderActivity : AppCompatActivity() {
                     .listFiles { _, name -> name.startsWith("$bookId.") && !name.endsWith(".tmp") }
                     ?.firstOrNull { it.length() > 0 }
             if (existing != null) {
-                return@withContext existing
+                return@withContext PreparedBook(existing, serverPositionTicks)
             }
 
             val downloadUrl = jellyfinRepository.getDownloadUrl(bookUUID)
@@ -374,18 +377,21 @@ class BookReaderActivity : AppCompatActivity() {
                 }
                 if (targetFile.exists()) targetFile.delete()
                 tempFile.renameTo(targetFile)
-                targetFile
+                PreparedBook(targetFile, serverPositionTicks)
             } else {
                 tempFile.delete()
                 throw IOException("Download failed with HTTP ${connection.responseCode}")
             }
         }
 
-    private suspend fun openPublication(file: File, savedInstanceState: Bundle?) {
+    /** The resolved book file plus the reading position the server has for it, in ticks. */
+    private data class PreparedBook(val file: File, val serverPositionTicks: Long)
+
+    private suspend fun openPublication(prepared: PreparedBook, savedInstanceState: Bundle?) {
         val httpClient = DefaultHttpClient()
         val assetRetriever = AssetRetriever(contentResolver, httpClient)
         val asset =
-            assetRetriever.retrieve(file).getOrElse {
+            assetRetriever.retrieve(prepared.file).getOrElse {
                 throw IOException("Failed to read book file: $it")
             }
         val streamer =
@@ -405,9 +411,24 @@ class BookReaderActivity : AppCompatActivity() {
 
         applyReadingProgression(pub)
 
+        val initialLocator = restoreLocator(pub, prepared.serverPositionTicks)
+
+        if (pub.conformsTo(Publication.Profile.DIVINA)) {
+            initDivinaNavigator(pub, initialLocator, savedInstanceState)
+        } else {
+            initEpubNavigator(pub, initialLocator, savedInstanceState)
+        }
+    }
+
+    /**
+     * Returns the locator to open the book at. The local locator is authoritative when present,
+     * since it is more precise. Otherwise fall back to the reading position the server has for
+     * this book so a book read on another device resumes near where it was left off.
+     */
+    private suspend fun restoreLocator(pub: Publication, serverPositionTicks: Long): Locator? {
         val savedLocatorJson =
             appPreferences.sharedPreferences.getString(KEY_LOCATOR_PREFIX + bookId, null)
-        val initialLocator = savedLocatorJson?.let {
+        val localLocator = savedLocatorJson?.let {
             try {
                 Locator.fromJSON(JSONObject(it))
             } catch (e: Exception) {
@@ -415,12 +436,39 @@ class BookReaderActivity : AppCompatActivity() {
                 null
             }
         }
+        if (localLocator != null) return localLocator
 
-        if (pub.conformsTo(Publication.Profile.DIVINA)) {
-            initDivinaNavigator(pub, initialLocator, savedInstanceState)
-        } else {
-            initEpubNavigator(pub, initialLocator, savedInstanceState)
-        }
+        return locatorFromServerProgress(pub, serverPositionTicks)
+    }
+
+    /**
+     * Derives a locator from the server's saved position.
+     *
+     * The reader posts `ticks = progression * VIRTUAL_TICKS_TOTAL`, so the inverse is
+     * `playbackPositionTicks / VIRTUAL_TICKS_TOTAL` — a synthetic scale unrelated to the runtime
+     * Jellyfin reports for a book. Readium 3.4 has no `locatorFromProgression`, so map the
+     * progression onto the positions service the publication opener registered (EpubPositionsService
+     * for EPUB, PerResourcePositionsService for Divina).
+     */
+    private suspend fun locatorFromServerProgress(
+        pub: Publication,
+        serverPositionTicks: Long,
+    ): Locator? {
+        if (serverPositionTicks <= 0L) return null
+
+        val progression = (serverPositionTicks.toDouble() / VIRTUAL_TICKS_TOTAL).coerceIn(0.0, 1.0)
+
+        val positions =
+            try {
+                pub.positions()
+            } catch (e: Exception) {
+                Timber.w(e, "Could not read publication positions")
+                return null
+            }
+        if (positions.isEmpty()) return null
+
+        val index = (positions.size * progression).toInt().coerceIn(0, positions.lastIndex)
+        return positions[index]
     }
 
     private fun initDivinaNavigator(
