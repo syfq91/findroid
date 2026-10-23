@@ -42,7 +42,11 @@ import java.net.URL
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -69,7 +73,7 @@ import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
 import timber.log.Timber
 
-@OptIn(ExperimentalReadiumApi::class)
+@OptIn(ExperimentalReadiumApi::class, FlowPreview::class)
 @AndroidEntryPoint
 class BookReaderActivity : AppCompatActivity() {
 
@@ -527,11 +531,26 @@ class BookReaderActivity : AppCompatActivity() {
     private fun observeNavigator() {
         val nav = navigator ?: return
         locatorJob?.cancel()
-        locatorJob = lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                nav.currentLocator.collect { locator -> onLocatorChanged(locator) }
+        locatorJob =
+            lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    coroutineScope {
+                        // Keep the UI and the locally persisted locator in sync immediately:
+                        // the local position is what powers instant resume.
+                        launch {
+                            nav.currentLocator.collect { locator -> onLocatorChanged(locator) }
+                        }
+                        // Debounce the server sync so a long read does not send one request
+                        // per page turn (or per scroll step in continuous mode).
+                        launch {
+                            nav.currentLocator
+                                .distinctUntilChangedBy { it.locations.totalProgression }
+                                .debounce(PLAYBACK_PROGRESS_DEBOUNCE_MS)
+                                .collect { locator -> postProgress(locator) }
+                        }
+                    }
+                }
             }
-        }
     }
 
     private fun onLocatorChanged(locator: Locator) {
@@ -546,15 +565,15 @@ class BookReaderActivity : AppCompatActivity() {
             .edit()
             .putString(KEY_LOCATOR_PREFIX + bookId, locator.toJSON().toString())
             .apply()
+    }
 
-        // Sync with Jellyfin server in background
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val ticks = (progression * VIRTUAL_TICKS_TOTAL).toLong()
-                jellyfinRepository.postPlaybackProgress(bookUUID, ticks, isPaused = false)
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to post playback progress")
-            }
+    private suspend fun postProgress(locator: Locator) {
+        val progression = locator.locations.totalProgression ?: 0.0
+        val ticks = (progression * VIRTUAL_TICKS_TOTAL).toLong()
+        try {
+            jellyfinRepository.postPlaybackProgress(bookUUID, ticks, isPaused = false)
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to post playback progress")
         }
     }
 
@@ -630,6 +649,13 @@ class BookReaderActivity : AppCompatActivity() {
         private const val TAG_NAVIGATOR = "reader_navigator"
         private const val KEY_LOCATOR_PREFIX = "pref_book_locator_"
         private const val VIRTUAL_TICKS_TOTAL = 1_000_000_000L
+
+        /**
+         * How long to wait after the last locator change before reporting progress to the
+         * server. The local position is written on every change; only the network sync is
+         * debounced so a long read does not produce one request per page.
+         */
+        private const val PLAYBACK_PROGRESS_DEBOUNCE_MS = 5_000L
 
         fun createIntent(
             context: Context,
