@@ -687,7 +687,10 @@ class BookReaderActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         locatorJob?.cancel()
-        publication?.close()
+        // Close the publication only after the container view has detached. Fragment teardown
+        // happens inside super.onDestroy(), but the Readium navigator runs coroutines that can
+        // still touch the publication while it is being closed.
+        binding.fragmentContainer.post { publication?.close() }
     }
 
     companion object {
