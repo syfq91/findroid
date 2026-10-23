@@ -13,6 +13,7 @@ import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.FindroidSource
 import dev.jdtech.jellyfin.models.SortBy
 import dev.jdtech.jellyfin.models.SortOrder
+import java.io.InputStream
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import org.jellyfin.sdk.model.api.BaseItemDto
@@ -116,6 +117,14 @@ interface JellyfinRepository {
     fun getBaseUrl(): String
 
     fun getDownloadUrl(itemId: UUID): String
+
+    /**
+     * Opens an authenticated stream to the item's download using an `Authorization` header,
+     * rather than embedding the access token in the URL. Callers that can send headers should
+     * prefer this over [getDownloadUrl]; the token in a URL can leak into logs and error
+     * messages.
+     */
+    suspend fun openDownloadStream(itemId: UUID): InputStream
 
     suspend fun updateDeviceName(name: String)
 

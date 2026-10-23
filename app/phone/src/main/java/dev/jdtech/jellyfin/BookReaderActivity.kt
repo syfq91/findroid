@@ -37,8 +37,6 @@ import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -361,27 +359,20 @@ class BookReaderActivity : AppCompatActivity() {
                 return@withContext PreparedBook(existing, serverPositionTicks)
             }
 
-            val downloadUrl = jellyfinRepository.getDownloadUrl(bookUUID)
             val tempFile = File(booksDir, "$bookId.$extension.tmp")
 
-            val connection =
-                (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 30000
-                    connect()
-                }
-
-            if (connection.responseCode in 200..299) {
-                connection.inputStream.use { input ->
+            try {
+                jellyfinRepository.openDownloadStream(bookUUID).use { input ->
                     FileOutputStream(tempFile).use { output -> input.copyTo(output) }
                 }
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-                PreparedBook(targetFile, serverPositionTicks)
-            } else {
+            } catch (e: Exception) {
                 tempFile.delete()
-                throw IOException("Download failed with HTTP ${connection.responseCode}")
+                throw e
             }
+
+            if (targetFile.exists()) targetFile.delete()
+            tempFile.renameTo(targetFile)
+            PreparedBook(targetFile, serverPositionTicks)
         }
 
     /** The resolved book file plus the reading position the server has for it, in ticks. */

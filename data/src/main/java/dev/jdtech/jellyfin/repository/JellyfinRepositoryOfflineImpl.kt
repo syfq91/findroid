@@ -25,6 +25,8 @@ import dev.jdtech.jellyfin.models.toFindroidShow
 import dev.jdtech.jellyfin.models.toFindroidSource
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -330,6 +332,12 @@ class JellyfinRepositoryOfflineImpl(
 
     override fun getDownloadUrl(itemId: UUID): String {
         return ""
+    }
+
+    override suspend fun openDownloadStream(itemId: UUID): InputStream {
+        // Offline mode has no server to stream a download from. Callers are expected to use a
+        // local source instead; surface a clear failure if one is requested.
+        throw IOException("Downloads are unavailable in offline mode")
     }
 
     override suspend fun updateDeviceName(name: String) {

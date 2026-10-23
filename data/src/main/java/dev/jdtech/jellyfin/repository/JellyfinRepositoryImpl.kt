@@ -30,10 +30,15 @@ import dev.jdtech.jellyfin.models.toFindroidShow
 import dev.jdtech.jellyfin.models.toFindroidSource
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import org.jellyfin.sdk.api.client.util.AuthorizationHeaderBuilder
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.DeviceOptionsDto
@@ -553,6 +558,37 @@ class JellyfinRepositoryImpl(
         val token = jellyfinApi.api.accessToken.orEmpty()
         return "$baseUrl/Items/$itemId/Download?api_key=$token"
     }
+
+    override suspend fun openDownloadStream(itemId: UUID): InputStream =
+        withContext(Dispatchers.IO) {
+            val baseUrl = getBaseUrl().trimEnd('/')
+            val api = jellyfinApi.api
+            val authorization =
+                AuthorizationHeaderBuilder.buildHeader(
+                    clientName = api.clientInfo.name,
+                    clientVersion = api.clientInfo.version,
+                    deviceId = api.deviceInfo.id,
+                    deviceName = api.deviceInfo.name,
+                    accessToken = api.accessToken,
+                )
+
+            val connection =
+                (URL("$baseUrl/Items/$itemId/Download").openConnection() as HttpURLConnection)
+                    .apply {
+                        connectTimeout = 15000
+                        readTimeout = 30000
+                        setRequestProperty("Authorization", authorization)
+                        connect()
+                    }
+
+            if (connection.responseCode in 200..299) {
+                connection.inputStream
+            } else {
+                val code = connection.responseCode
+                connection.disconnect()
+                throw IOException("Download failed with HTTP $code")
+            }
+        }
 
     override suspend fun updateDeviceName(name: String) {
         withContext(Dispatchers.IO) {
