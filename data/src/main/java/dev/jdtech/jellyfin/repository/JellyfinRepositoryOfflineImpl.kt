@@ -81,21 +81,18 @@ class JellyfinRepositoryOfflineImpl(
         return emptyList()
     }
 
+    /**
+     * Looks up an offline item by id.
+     *
+     * Upstream always returned `null`. This resolves books only — the fork's offline-books feature
+     * — and returns `null` for movies and episodes, so [ImagesDownloaderWorker] keeps upstream's
+     * behaviour of not fetching images for non-book items while offline. The lookup uses the
+     * nullable [ServerDatabaseDao.findBook] query rather than catching `EmptyResultSetException`,
+     * so a miss is an ordinary `null` instead of control flow via an exception.
+     */
     override suspend fun getItem(itemId: UUID): FindroidItem? =
         withContext(Dispatchers.IO) {
-            try {
-                database.getMovie(itemId).toFindroidMovie(database, jellyfinApi.userId!!)
-            } catch (_: Exception) {
-                try {
-                    database.getEpisode(itemId).toFindroidEpisode(database, jellyfinApi.userId!!)
-                } catch (_: Exception) {
-                    try {
-                        database.getBook(itemId).toFindroidBook(database, jellyfinApi.userId!!)
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-            }
+            database.findBook(itemId)?.toFindroidBook(database, jellyfinApi.userId!!)
         }
 
     override suspend fun getItems(

@@ -256,6 +256,9 @@ interface ServerDatabaseDao {
 
     @Query("SELECT * FROM books WHERE id = :id") suspend fun getBook(id: UUID): FindroidBookDto
 
+    /** Nullable counterpart of [getBook] for lookups where the row may be absent. */
+    @Query("SELECT * FROM books WHERE id = :id") suspend fun findBook(id: UUID): FindroidBookDto?
+
     @Query("SELECT * FROM books ORDER BY name ASC") suspend fun getBooks(): List<FindroidBookDto>
 
     @Query("SELECT * FROM books WHERE serverId = :serverId ORDER BY name ASC")
