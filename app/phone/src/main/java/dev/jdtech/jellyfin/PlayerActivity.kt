@@ -42,7 +42,6 @@ import dev.jdtech.jellyfin.presentation.player.TrackSelectionDialogFragment
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.utils.PlayerGestureHelper
 import dev.jdtech.jellyfin.utils.PreviewScrubListener
-import io.github.peerless2012.ass.media.kt.withAssSupport
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.delay
@@ -100,9 +99,7 @@ class PlayerActivity : BasePlayerActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.playerView.player = viewModel.player
-        viewModel.assHandler?.let { handler ->
-            binding.playerView.subtitleView?.withAssSupport(handler)
-        }
+        viewModel.attachSubtitleOverlay(binding.playerView.subtitleView)
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.GONE) {

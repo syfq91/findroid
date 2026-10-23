@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.ui.SubtitleView
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
@@ -65,8 +66,13 @@ constructor(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel(), Player.Listener {
     val player: Player
-    var assHandler: AssHandler? = null
-        private set
+
+    /**
+     * Handler for the libass subtitle renderer, or null when libass is not in use (mpv backend,
+     * or libass disabled). Kept private so the libass types do not leak past this module; the
+     * app layers attach the subtitle overlay through [attachSubtitleOverlay].
+     */
+    private var assHandler: AssHandler? = null
 
     private val _uiState =
         MutableStateFlow(
@@ -259,6 +265,18 @@ constructor(
             player.prepare()
             player.play()
         }
+    }
+
+    /**
+     * Attaches the libass subtitle overlay to the player's [SubtitleView].
+     *
+     * This keeps the libass types inside `player/local`: the app modules pass their
+     * `SubtitleView` and never name an `io.github.peerless2012.*` type themselves. Does nothing
+     * when libass is not in use (mpv backend, or the libass preference disabled).
+     */
+    fun attachSubtitleOverlay(subtitleView: SubtitleView?) {
+        val handler = assHandler ?: return
+        subtitleView?.withAssSupport(handler)
     }
 
     private fun PlayerItem.toMediaItem(): MediaItem {

@@ -55,7 +55,6 @@ import dev.jdtech.jellyfin.ui.components.player.VideoPlayerSeeker
 import dev.jdtech.jellyfin.ui.components.player.VideoPlayerState
 import dev.jdtech.jellyfin.ui.components.player.rememberVideoPlayerState
 import dev.jdtech.jellyfin.utils.handleDPadKeyEvents
-import io.github.peerless2012.ass.media.kt.withAssSupport
 import java.util.Locale
 import java.util.UUID
 import kotlin.time.Duration.Companion.milliseconds
@@ -178,9 +177,7 @@ fun PlayerScreen(
                 PlayerView(context).also { playerView ->
                     playerView.player = viewModel.player
                     playerView.useController = false
-                    viewModel.assHandler?.let { handler ->
-                        playerView.subtitleView?.withAssSupport(handler)
-                    }
+                    viewModel.attachSubtitleOverlay(playerView.subtitleView)
                     viewModel.initializePlayer(
                         itemId = itemId,
                         itemKind = itemKind,
