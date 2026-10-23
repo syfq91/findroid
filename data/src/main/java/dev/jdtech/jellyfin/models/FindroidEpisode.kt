@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.models
 
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import java.io.File
 import java.util.UUID
 import org.jellyfin.sdk.model.DateTime
 import org.jellyfin.sdk.model.api.BaseItemDto
@@ -35,7 +36,46 @@ data class FindroidEpisode(
     override val images: FindroidImages,
     override val chapters: List<FindroidChapter>,
     override val trickplayInfo: Map<String, FindroidTrickplayInfo>?,
-) : FindroidItem, FindroidSources
+) : FindroidItem, FindroidSources, DownloadableItem {
+    override val hasVideoExtras: Boolean = true
+
+    override suspend fun resolveDownloadSource(
+        sourceId: String,
+        repository: JellyfinRepository,
+    ): FindroidSource {
+        return repository.getMediaSources(id, true).first { it.id == sourceId }
+    }
+
+    override suspend fun persistDownloadMetadata(
+        database: ServerDatabaseDao,
+        repository: JellyfinRepository,
+        serverId: String?,
+    ) {
+        val show = repository.getShow(seriesId)
+        database.insertShow(show.toFindroidShowDto(serverId))
+        val season = repository.getSeason(seasonId)
+        database.insertSeason(season.toFindroidSeasonDto())
+        database.insertEpisode(toFindroidEpisodeDto(serverId))
+    }
+
+    override suspend fun deleteDownloadMetadata(database: ServerDatabaseDao, filesDir: File) {
+        database.deleteEpisode(id)
+        val remainingEpisodes = database.getEpisodesBySeasonId(seasonId)
+        if (remainingEpisodes.isEmpty()) {
+            database.deleteSeason(seasonId)
+            database.deleteUserData(seasonId)
+            File(filesDir, "trickplay/$seasonId").deleteRecursively()
+            File(filesDir, "images/$seasonId").deleteRecursively()
+            val remainingSeasons = database.getSeasonsByShowId(seriesId)
+            if (remainingSeasons.isEmpty()) {
+                database.deleteShow(seriesId)
+                database.deleteUserData(seriesId)
+                File(filesDir, "trickplay/$seriesId").deleteRecursively()
+                File(filesDir, "images/$seriesId").deleteRecursively()
+            }
+        }
+    }
+}
 
 suspend fun BaseItemDto.toFindroidEpisode(
     jellyfinRepository: JellyfinRepository,

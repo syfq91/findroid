@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.models
 
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import java.io.File
 import java.time.LocalDateTime
 import java.util.UUID
 import org.jellyfin.sdk.model.api.BaseItemDto
@@ -32,7 +33,28 @@ data class FindroidMovie(
     override val images: FindroidImages,
     override val chapters: List<FindroidChapter>,
     override val trickplayInfo: Map<String, FindroidTrickplayInfo>?,
-) : FindroidItem, FindroidSources
+) : FindroidItem, FindroidSources, DownloadableItem {
+    override val hasVideoExtras: Boolean = true
+
+    override suspend fun resolveDownloadSource(
+        sourceId: String,
+        repository: JellyfinRepository,
+    ): FindroidSource {
+        return repository.getMediaSources(id, true).first { it.id == sourceId }
+    }
+
+    override suspend fun persistDownloadMetadata(
+        database: ServerDatabaseDao,
+        repository: JellyfinRepository,
+        serverId: String?,
+    ) {
+        database.insertMovie(toFindroidMovieDto(serverId))
+    }
+
+    override suspend fun deleteDownloadMetadata(database: ServerDatabaseDao, filesDir: File) {
+        database.deleteMovie(id)
+    }
+}
 
 suspend fun BaseItemDto.toFindroidMovie(
     jellyfinRepository: JellyfinRepository,

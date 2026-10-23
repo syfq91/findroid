@@ -2,6 +2,7 @@ package dev.jdtech.jellyfin.models
 
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.repository.JellyfinRepository
+import java.io.File
 import java.util.UUID
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.PersonKind
@@ -31,7 +32,48 @@ data class FindroidBook(
     override val images: FindroidImages,
     override val chapters: List<FindroidChapter> = emptyList(),
     override val trickplayInfo: Map<String, FindroidTrickplayInfo>? = null,
-) : FindroidItem, FindroidSources
+) : FindroidItem, FindroidSources, DownloadableItem {
+    override val hasVideoExtras: Boolean = false
+
+    override suspend fun resolveDownloadSource(
+        sourceId: String,
+        repository: JellyfinRepository,
+    ): FindroidSource {
+        val rawSource =
+            sources.firstOrNull { it.id == sourceId }
+                ?: try {
+                    repository.getMediaSources(id, true).firstOrNull { it.id == sourceId }
+                } catch (_: Exception) {
+                    null
+                }
+                ?: sources.firstOrNull()
+                ?: FindroidSource(
+                    id = sourceId.ifBlank { id.toString() },
+                    name = name,
+                    type = FindroidSourceType.REMOTE,
+                    path = repository.getDownloadUrl(id),
+                    size = size ?: 0L,
+                    mediaStreams = emptyList(),
+                )
+        return if (rawSource.path.isBlank() || !rawSource.path.startsWith("http")) {
+            rawSource.copy(path = repository.getDownloadUrl(id))
+        } else {
+            rawSource
+        }
+    }
+
+    override suspend fun persistDownloadMetadata(
+        database: ServerDatabaseDao,
+        repository: JellyfinRepository,
+        serverId: String?,
+    ) {
+        database.insertBook(toFindroidBookDto(serverId))
+    }
+
+    override suspend fun deleteDownloadMetadata(database: ServerDatabaseDao, filesDir: File) {
+        database.deleteBook(id)
+    }
+}
 
 suspend fun BaseItemDto.toFindroidBook(
     jellyfinRepository: JellyfinRepository,

@@ -12,22 +12,15 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
-import dev.jdtech.jellyfin.models.FindroidBook
+import dev.jdtech.jellyfin.models.DownloadableItem
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
-import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidSource
-import dev.jdtech.jellyfin.models.FindroidSourceType
 import dev.jdtech.jellyfin.models.FindroidSources
 import dev.jdtech.jellyfin.models.FindroidTrickplayInfo
 import dev.jdtech.jellyfin.models.UiText
-import dev.jdtech.jellyfin.models.toFindroidBookDto
-import dev.jdtech.jellyfin.models.toFindroidEpisodeDto
 import dev.jdtech.jellyfin.models.toFindroidMediaStreamDto
-import dev.jdtech.jellyfin.models.toFindroidMovieDto
-import dev.jdtech.jellyfin.models.toFindroidSeasonDto
 import dev.jdtech.jellyfin.models.toFindroidSegmentsDto
-import dev.jdtech.jellyfin.models.toFindroidShowDto
 import dev.jdtech.jellyfin.models.toFindroidSource
 import dev.jdtech.jellyfin.models.toFindroidSourceDto
 import dev.jdtech.jellyfin.models.toFindroidTrickplayInfoDto
@@ -59,39 +52,19 @@ class DownloaderImpl(
         sourceId: String,
         storageIndex: Int,
     ): Pair<Long, UiText?> = coroutineScope {
+        val downloadable =
+            item as? DownloadableItem
+                ?: return@coroutineScope Pair(
+                    -1,
+                    UiText.StringResource(CoreR.string.unknown_error),
+                )
         try {
-            val source =
-                if (item is FindroidBook) {
-                    val rawSource =
-                        item.sources.firstOrNull { it.id == sourceId }
-                            ?: try {
-                                jellyfinRepository.getMediaSources(item.id, true).firstOrNull {
-                                    it.id == sourceId
-                                }
-                            } catch (_: Exception) {
-                                null
-                            }
-                            ?: item.sources.firstOrNull()
-                            ?: FindroidSource(
-                                id = sourceId.ifBlank { item.id.toString() },
-                                name = item.name,
-                                type = FindroidSourceType.REMOTE,
-                                path = jellyfinRepository.getDownloadUrl(item.id),
-                                size = item.size ?: 0L,
-                                mediaStreams = emptyList(),
-                            )
-                    if (rawSource.path.isBlank() || !rawSource.path.startsWith("http")) {
-                        rawSource.copy(path = jellyfinRepository.getDownloadUrl(item.id))
-                    } else {
-                        rawSource
-                    }
-                } else {
-                    jellyfinRepository.getMediaSources(item.id, true).first { it.id == sourceId }
-                }
+            val source = downloadable.resolveDownloadSource(sourceId, jellyfinRepository)
             val segments =
-                if (item is FindroidBook) emptyList() else jellyfinRepository.getSegments(item.id)
+                if (downloadable.hasVideoExtras) jellyfinRepository.getSegments(item.id)
+                else emptyList()
             val trickplayInfo =
-                if (item is FindroidSources && item !is FindroidBook) {
+                if (downloadable.hasVideoExtras && item is FindroidSources) {
                     item.trickplayInfo?.get(sourceId)
                 } else {
                     null
@@ -135,39 +108,16 @@ class DownloaderImpl(
                     .setDestinationUri(path)
             val downloadId = downloadManager.enqueue(request)
 
-            when (item) {
-                is FindroidMovie -> {
-                    database.insertMovie(
-                        item.toFindroidMovieDto(
-                            appPreferences.getValue(appPreferences.currentServer)
-                        )
-                    )
-                }
-                is FindroidEpisode -> {
-                    val show = jellyfinRepository.getShow(item.seriesId)
-                    database.insertShow(
-                        show.toFindroidShowDto(
-                            appPreferences.getValue(appPreferences.currentServer)
-                        )
-                    )
-                    val season = jellyfinRepository.getSeason(item.seasonId)
-                    database.insertSeason(season.toFindroidSeasonDto())
-                    database.insertEpisode(
-                        item.toFindroidEpisodeDto(
-                            appPreferences.getValue(appPreferences.currentServer)
-                        )
-                    )
-
-                    startImagesDownloader(show)
-                    startImagesDownloader(season)
-                }
-                is FindroidBook -> {
-                    database.insertBook(
-                        item.toFindroidBookDto(
-                            appPreferences.getValue(appPreferences.currentServer)
-                        )
-                    )
-                }
+            downloadable.persistDownloadMetadata(
+                database,
+                jellyfinRepository,
+                appPreferences.getValue(appPreferences.currentServer),
+            )
+            // An episode is persisted together with its show and season; fetch their images too
+            // so the offline show/season screens are not blank. Books and movies have no parents.
+            if (item is FindroidEpisode) {
+                startImagesDownloaderById(item.seriesId)
+                startImagesDownloaderById(item.seasonId)
             }
 
             val sourceDto = source.toFindroidSourceDto(item.id, path.path.orEmpty())
@@ -175,7 +125,7 @@ class DownloaderImpl(
             database.insertSource(sourceDto.copy(downloadId = downloadId))
             database.insertUserData(item.toFindroidUserDataDto(jellyfinRepository.getUserId()))
 
-            if (item !is FindroidBook) {
+            if (downloadable.hasVideoExtras) {
                 downloadExternalMediaStreams(item, source, storageIndex)
                 segments.forEach { database.insertSegment(it.toFindroidSegmentsDto(item.id)) }
             }
@@ -188,18 +138,7 @@ class DownloaderImpl(
             return@coroutineScope Pair(downloadId, null)
         } catch (e: Exception) {
             try {
-                val source =
-                    if (item is FindroidBook) {
-                        item.sources.firstOrNull { it.id == sourceId }
-                            ?: jellyfinRepository.getMediaSources(item.id).firstOrNull {
-                                it.id == sourceId
-                            }
-                    } else {
-                        jellyfinRepository.getMediaSources(item.id).first { it.id == sourceId }
-                    }
-                if (source != null) {
-                    deleteItem(item, source)
-                }
+                deleteItem(item, downloadable.resolveDownloadSource(sourceId, jellyfinRepository))
             } catch (_: Exception) {}
             Timber.e(e)
             return@coroutineScope Pair(
@@ -220,31 +159,7 @@ class DownloaderImpl(
     }
 
     override suspend fun deleteItem(item: FindroidItem, source: FindroidSource) {
-        when (item) {
-            is FindroidMovie -> {
-                database.deleteMovie(item.id)
-            }
-            is FindroidEpisode -> {
-                database.deleteEpisode(item.id)
-                val remainingEpisodes = database.getEpisodesBySeasonId(item.seasonId)
-                if (remainingEpisodes.isEmpty()) {
-                    database.deleteSeason(item.seasonId)
-                    database.deleteUserData(item.seasonId)
-                    File(context.filesDir, "trickplay/${item.seasonId}").deleteRecursively()
-                    File(context.filesDir, "images/${item.seasonId}").deleteRecursively()
-                    val remainingSeasons = database.getSeasonsByShowId(item.seriesId)
-                    if (remainingSeasons.isEmpty()) {
-                        database.deleteShow(item.seriesId)
-                        database.deleteUserData(item.seriesId)
-                        File(context.filesDir, "trickplay/${item.seriesId}").deleteRecursively()
-                        File(context.filesDir, "images/${item.seriesId}").deleteRecursively()
-                    }
-                }
-            }
-            is FindroidBook -> {
-                database.deleteBook(item.id)
-            }
-        }
+        (item as? DownloadableItem)?.deleteDownloadMetadata(database, context.filesDir)
 
         database.deleteSource(source.id)
         File(source.path).delete()
@@ -370,9 +285,13 @@ class DownloaderImpl(
     }
 
     private fun startImagesDownloader(item: FindroidItem) {
+        startImagesDownloaderById(item.id)
+    }
+
+    private fun startImagesDownloaderById(itemId: UUID) {
         val downloadImagesRequest =
             OneTimeWorkRequestBuilder<ImagesDownloaderWorker>()
-                .setInputData(workDataOf(ImagesDownloaderWorker.KEY_ITEM_ID to item.id.toString()))
+                .setInputData(workDataOf(ImagesDownloaderWorker.KEY_ITEM_ID to itemId.toString()))
                 .build()
 
         workManager.enqueue(downloadImagesRequest)
