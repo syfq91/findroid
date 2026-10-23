@@ -1,31 +1,17 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
 import android.app.DownloadManager
-import android.os.Environment
-import android.os.StatFs
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -36,7 +22,12 @@ import dev.jdtech.jellyfin.core.presentation.dummy.dummyEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidShow
-import dev.jdtech.jellyfin.models.isDownloaded
+import dev.jdtech.jellyfin.presentation.components.DownloadButton
+import dev.jdtech.jellyfin.presentation.components.DownloadDialogs
+import dev.jdtech.jellyfin.presentation.components.DownloadProgress
+import dev.jdtech.jellyfin.presentation.components.FavoriteButton
+import dev.jdtech.jellyfin.presentation.components.MarkPlayedButton
+import dev.jdtech.jellyfin.presentation.components.rememberDownloadControlsState
 import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.presentation.theme.spacings
 
@@ -54,7 +45,6 @@ fun ItemButtonsBar(
     downloaderState: DownloaderState? = null,
     canPlay: Boolean = true,
 ) {
-    val context = LocalContext.current
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
 
     val trailerUri =
@@ -68,12 +58,7 @@ fun ItemButtonsBar(
             else -> null
         }
 
-    var storageSelectionDialogOpen by remember { mutableStateOf(false) }
-    var cancelDownloadDialogOpen by remember { mutableStateOf(false) }
-    var deleteDownloadDialogOpen by remember { mutableStateOf(false) }
-
-    var selectedStorageIndex by remember { mutableIntStateOf(0) }
-    var storageLocations = remember { context.getExternalFilesDirs(null) }
+    val downloadControls = rememberDownloadControlsState()
 
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
         Column(
@@ -130,118 +115,27 @@ fun ItemButtonsBar(
                         )
                     }
                 }
-                FilledTonalIconButton(onClick = onMarkAsPlayedClick) {
-                    Icon(
-                        painter = painterResource(CoreR.drawable.ic_check),
-                        contentDescription = null,
-                        tint = if (item.played) Color.Red else LocalContentColor.current,
-                    )
-                }
-                FilledTonalIconButton(onClick = onMarkAsFavoriteClick) {
-                    when (item.favorite) {
-                        true -> {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_heart_filled),
-                                contentDescription = null,
-                                tint = Color.Red,
-                            )
-                        }
-                        false -> {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_heart),
-                                contentDescription = null,
-                            )
-                        }
-                    }
-                }
-                if (downloaderState != null && !downloaderState.isDownloading) {
-                    if (item.isDownloaded()) {
-                        FilledTonalIconButton(onClick = { deleteDownloadDialogOpen = true }) {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_trash),
-                                contentDescription = null,
-                            )
-                        }
-                    } else if (item.canDownload) {
-                        FilledTonalIconButton(
-                            onClick = {
-                                storageLocations = context.getExternalFilesDirs(null)
-                                if (storageLocations.size > 1) {
-                                    storageSelectionDialogOpen = true
-                                } else {
-                                    selectedStorageIndex = 0
-                                    onDownloadClick(selectedStorageIndex)
-                                }
-                            }
-                        ) {
-                            Icon(
-                                painter = painterResource(CoreR.drawable.ic_download),
-                                contentDescription = null,
-                            )
-                        }
-                    }
-                }
+                MarkPlayedButton(played = item.played, onClick = onMarkAsPlayedClick)
+                FavoriteButton(favorite = item.favorite, onClick = onMarkAsFavoriteClick)
+                DownloadButton(
+                    item = item,
+                    state = downloadControls,
+                    downloaderState = downloaderState,
+                    onDownloadClick = onDownloadClick,
+                )
             }
-            if (downloaderState != null) {
-                AnimatedVisibility(downloaderState.isDownloading) {
-                    Column {
-                        DownloaderCard(
-                            state = downloaderState,
-                            onCancelClick = { cancelDownloadDialogOpen = true },
-                            onRetryClick = { onDownloadClick(selectedStorageIndex) },
-                        )
-                        Spacer(Modifier.height(MaterialTheme.spacings.small))
-                    }
-                }
-            }
-        }
-        if (storageSelectionDialogOpen) {
-            val resources = LocalResources.current
-            val locations =
-                remember(resources, storageLocations) {
-                    storageLocations.map { dir ->
-                        val locationStringRes =
-                            if (Environment.isExternalStorageRemovable(dir)) CoreR.string.external
-                            else CoreR.string.internal
-                        val locationString = resources.getString(locationStringRes)
-
-                        val stat = StatFs(dir.path)
-                        val availableMegaBytes = stat.availableBytes.div(1000000)
-                        resources.getString(
-                            CoreR.string.storage_name,
-                            locationString,
-                            availableMegaBytes,
-                        )
-                    }
-                }
-            StorageSelectionDialog(
-                storageLocations = locations,
-                onSelect = { storageIndex ->
-                    selectedStorageIndex = storageIndex
-                    onDownloadClick(selectedStorageIndex)
-                    storageSelectionDialogOpen = false
-                },
-                onDismiss = { storageSelectionDialogOpen = false },
+            DownloadProgress(
+                state = downloadControls,
+                downloaderState = downloaderState,
+                onDownloadClick = onDownloadClick,
             )
         }
-        if (cancelDownloadDialogOpen) {
-            CancelDownloadDialog(
-                onCancel = {
-                    onDownloadCancelClick()
-                    cancelDownloadDialogOpen = false
-                },
-                onDismiss = { cancelDownloadDialogOpen = false },
-            )
-        }
-        if (deleteDownloadDialogOpen) {
-            DeleteDownloadDialog(
-                onDelete = {
-                    onDownloadDeleteClick()
-                    deleteDownloadDialogOpen = false
-                },
-                onDismiss = { deleteDownloadDialogOpen = false },
-            )
-        }
+        DownloadDialogs(
+            state = downloadControls,
+            onDownloadClick = onDownloadClick,
+            onDownloadCancelClick = onDownloadCancelClick,
+            onDownloadDeleteClick = onDownloadDeleteClick,
+        )
     }
 }
 
