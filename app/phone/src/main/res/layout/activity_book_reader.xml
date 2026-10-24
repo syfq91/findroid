@@ -13,6 +13,57 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Reader Bottom Status Bar -->
+    <LinearLayout
+        android:id="@+id/reader_status_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layoutDirection="ltr"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextClock
+            android:id="@+id/status_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="start|center_vertical"
+            android:singleLine="true"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:textColor="#B3FFFFFF"
+            tools:text="10:45" />
+
+        <TextView
+            android:id="@+id/status_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="12dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:textColor="#B3FFFFFF"
+            tools:text="Chapter 1" />
+
+        <TextView
+            android:id="@+id/status_page_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="end|center_vertical"
+            android:singleLine="true"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:textColor="#B3FFFFFF"
+            tools:text="1/24" />
+
+    </LinearLayout>
+
     <!-- Loading Indicator -->
     <LinearLayout
         android:id="@+id/loading_layout"

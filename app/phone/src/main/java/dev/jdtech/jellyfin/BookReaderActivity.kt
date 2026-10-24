@@ -17,10 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -119,6 +121,7 @@ class BookReaderActivity : AppCompatActivity() {
         bookTitle = intent.getStringExtra(EXTRA_BOOK_TITLE).orEmpty()
 
         binding.textBookTitle.text = bookTitle
+        binding.statusTitle.text = bookTitle
         applyOrientation()
         applyReadingProgression()
         updateBackgroundTheme()
@@ -137,11 +140,32 @@ class BookReaderActivity : AppCompatActivity() {
         binding.buttonPrevPage.setOnClickListener { navigator?.goBackward(animated = true) }
 
         binding.buttonNextPage.setOnClickListener { navigator?.goForward(animated = true) }
+
+        binding.readerStatusBar.setOnClickListener { toggleControls() }
+
+        val baseHorizontalPadding = (16 * resources.displayMetrics.density).toInt()
+        val baseBottomPadding = (6 * resources.displayMetrics.density).toInt()
+        val baseTopPadding = (4 * resources.displayMetrics.density).toInt()
+        ViewCompat.setOnApplyWindowInsetsListener(binding.readerStatusBar) { v, insets ->
+            val navBars =
+                insets.getInsets(
+                    WindowInsetsCompat.Type.navigationBars() or
+                        WindowInsetsCompat.Type.displayCutout()
+                )
+            v.updatePadding(
+                left = baseHorizontalPadding + navBars.left,
+                right = baseHorizontalPadding + navBars.right,
+                top = baseTopPadding,
+                bottom = maxOf(baseBottomPadding, navBars.bottom),
+            )
+            insets
+        }
     }
 
     private fun toggleControls() {
         val willShow = !binding.controlsOverlay.isVisible
         binding.controlsOverlay.isVisible = willShow
+        binding.readerStatusBar.isVisible = !willShow
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (willShow) {
             controller.show(WindowInsetsCompat.Type.systemBars())
@@ -165,6 +189,7 @@ class BookReaderActivity : AppCompatActivity() {
         if (::binding.isInitialized) {
             binding.root.layoutDirection = direction
             binding.fragmentContainer.layoutDirection = direction
+            binding.readerStatusBar.layoutDirection = View.LAYOUT_DIRECTION_LTR
         }
     }
 
@@ -186,6 +211,26 @@ class BookReaderActivity : AppCompatActivity() {
                 else -> Color.parseColor("#121212")
             }
         binding.readerRoot.setBackgroundColor(color)
+
+        val isDivina = publication?.conformsTo(Publication.Profile.DIVINA) == true
+        if (isDivina) {
+            binding.readerStatusBar.setBackgroundColor(Color.parseColor("#B3000000"))
+            val textColor = Color.parseColor("#D9FFFFFF")
+            binding.statusClock.setTextColor(textColor)
+            binding.statusTitle.setTextColor(textColor)
+            binding.statusPageCount.setTextColor(textColor)
+        } else {
+            val (bgColor, textColor) =
+                when (themeStr) {
+                    "light" -> Color.parseColor("#E6FAFAFA") to Color.parseColor("#8A000000")
+                    "sepia" -> Color.parseColor("#E6FBF0D9") to Color.parseColor("#8A5B4636")
+                    else -> Color.parseColor("#E6121212") to Color.parseColor("#8AFFFFFF")
+                }
+            binding.readerStatusBar.setBackgroundColor(bgColor)
+            binding.statusClock.setTextColor(textColor)
+            binding.statusTitle.setTextColor(textColor)
+            binding.statusPageCount.setTextColor(textColor)
+        }
     }
 
     private fun buildEpubPreferences(): EpubPreferences {
@@ -309,10 +354,14 @@ class BookReaderActivity : AppCompatActivity() {
     private fun loadBookAndOpen(savedInstanceState: Bundle?) {
         lifecycleScope.launch {
             binding.loadingLayout.isVisible = true
+            binding.readerStatusBar.isVisible = false
             try {
                 val prepared = prepareBookFile()
                 openPublication(prepared, savedInstanceState)
                 binding.loadingLayout.isVisible = false
+                if (!binding.controlsOverlay.isVisible) {
+                    binding.readerStatusBar.isVisible = true
+                }
             } catch (e: Exception) {
                 Timber.e(e, "Error opening book $bookId")
                 binding.loadingLayout.isVisible = false
@@ -444,6 +493,14 @@ class BookReaderActivity : AppCompatActivity() {
                 }
             }
         this.publication = pub
+        if (bookTitle.isBlank()) {
+            pub.metadata.title?.takeIf { it.isNotBlank() }?.let {
+                bookTitle = it
+                binding.textBookTitle.text = bookTitle
+                binding.statusTitle.text = bookTitle
+            }
+        }
+        updateBackgroundTheme()
         this.positionsByReadingOrder =
             if (!pub.conformsTo(Publication.Profile.DIVINA)) {
                 try {
@@ -583,7 +640,20 @@ class BookReaderActivity : AppCompatActivity() {
                         epubChapterHref = locator.href.removeFragment().removeQuery()
                         epubChapterPage = pageIndex + 1
                         epubChapterTotalPages = totalPages.coerceAtLeast(1)
-                        binding.textProgress.text = "$epubChapterPage/$epubChapterTotalPages"
+                        val progressText = "$epubChapterPage/$epubChapterTotalPages"
+                        binding.textProgress.text = progressText
+                        binding.statusPageCount.text = progressText
+                        val title =
+                            resolveChapterTitle(
+                                locator = locator,
+                                tableOfContents = pub.tableOfContents,
+                                readingOrder = pub.readingOrder,
+                                bookTitle = bookTitle,
+                            )
+                        binding.statusTitle.text = title
+                        if (title != bookTitle) {
+                            binding.textChapterTitle.text = title
+                        }
                     }
                 }
             }
@@ -680,35 +750,48 @@ class BookReaderActivity : AppCompatActivity() {
 
     private fun onLocatorChanged(locator: Locator) {
         val pub = publication
-        if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
-            val totalPages = pub.readingOrder.size
-            val currentPage =
-                locator.locations.position
-                    ?: pub.readingOrder.indexOfFirstWithHref(locator.href)?.let { it + 1 }
-                    ?: if (totalPages > 0) {
-                        val progression = locator.locations.totalProgression ?: 0.0
-                        ((progression * totalPages).toInt() + 1).coerceIn(1, totalPages)
-                    } else {
-                        1
-                    }
-            binding.textProgress.text = "$currentPage/$totalPages"
-        } else {
-            val chapterIndex = pub?.readingOrder?.indexOfFirstWithHref(locator.href)
-            val isScroll = appPreferences.getValue(appPreferences.readerScroll)
-            val (currentPage, totalPages) =
-                calculateEpubChapterProgress(
-                    locator = locator,
-                    readingOrderIndex = chapterIndex,
-                    positionsByReadingOrder = positionsByReadingOrder,
-                    cachedChapterHref = epubChapterHref,
-                    cachedPage = epubChapterPage,
-                    cachedTotalPages = epubChapterTotalPages,
-                    isScrollMode = isScroll,
-                )
-            binding.textProgress.text = "$currentPage/$totalPages"
-        }
+        val progressText =
+            if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
+                val totalPages = pub.readingOrder.size
+                val currentPage =
+                    locator.locations.position
+                        ?: pub.readingOrder.indexOfFirstWithHref(locator.href)?.let { it + 1 }
+                        ?: if (totalPages > 0) {
+                            val progression = locator.locations.totalProgression ?: 0.0
+                            ((progression * totalPages).toInt() + 1).coerceIn(1, totalPages)
+                        } else {
+                            1
+                        }
+                "$currentPage/$totalPages"
+            } else {
+                val chapterIndex = pub?.readingOrder?.indexOfFirstWithHref(locator.href)
+                val isScroll = appPreferences.getValue(appPreferences.readerScroll)
+                val (currentPage, totalPages) =
+                    calculateEpubChapterProgress(
+                        locator = locator,
+                        readingOrderIndex = chapterIndex,
+                        positionsByReadingOrder = positionsByReadingOrder,
+                        cachedChapterHref = epubChapterHref,
+                        cachedPage = epubChapterPage,
+                        cachedTotalPages = epubChapterTotalPages,
+                        isScrollMode = isScroll,
+                    )
+                "$currentPage/$totalPages"
+            }
+        binding.textProgress.text = progressText
+        binding.statusPageCount.text = progressText
 
-        locator.title?.let { if (it.isNotBlank()) binding.textChapterTitle.text = it }
+        val title =
+            resolveChapterTitle(
+                locator = locator,
+                tableOfContents = pub?.tableOfContents ?: emptyList(),
+                readingOrder = pub?.readingOrder ?: emptyList(),
+                bookTitle = bookTitle,
+            )
+        binding.statusTitle.text = title
+        if (title != bookTitle) {
+            binding.textChapterTitle.text = title
+        }
 
         // Persist local reading position
         appPreferences.sharedPreferences
@@ -1011,6 +1094,61 @@ class BookReaderActivity : AppCompatActivity() {
                     ((progression + 1e-5) * totalPages).toInt().coerceIn(0, totalPages - 1) + 1
                 }
             return currentPage to totalPages
+        }
+
+        internal fun findTitleInToc(links: List<Link>, targetHref: Url): String? {
+            val targetNormalized = targetHref.removeFragment().removeQuery()
+            for (link in links) {
+                if (link.href == targetHref && !link.title.isNullOrBlank()) {
+                    return link.title!!.trim()
+                }
+            }
+            for (link in links) {
+                if (
+                    link.href.removeFragment().removeQuery() == targetNormalized &&
+                        !link.title.isNullOrBlank()
+                ) {
+                    return link.title!!.trim()
+                }
+            }
+            for (link in links) {
+                val childResult = findTitleInToc(link.children, targetHref)
+                if (!childResult.isNullOrBlank()) {
+                    return childResult
+                }
+            }
+            return null
+        }
+
+        internal fun resolveChapterTitle(
+            locator: Locator?,
+            tableOfContents: List<Link> = emptyList(),
+            readingOrder: List<Link> = emptyList(),
+            bookTitle: String = "",
+        ): String {
+            val directTitle = locator?.title?.trim()
+            if (!directTitle.isNullOrEmpty()) {
+                return directTitle
+            }
+
+            if (locator != null) {
+                val tocTitle = findTitleInToc(tableOfContents, locator.href)
+                if (!tocTitle.isNullOrBlank()) {
+                    return tocTitle
+                }
+
+                val targetNormalized = locator.href.removeFragment().removeQuery()
+                val readingOrderItem =
+                    readingOrder.firstOrNull {
+                        it.href.removeFragment().removeQuery() == targetNormalized
+                    }
+                val readingOrderTitle = readingOrderItem?.title?.trim()
+                if (!readingOrderTitle.isNullOrEmpty()) {
+                    return readingOrderTitle
+                }
+            }
+
+            return bookTitle.trim()
         }
     }
 }

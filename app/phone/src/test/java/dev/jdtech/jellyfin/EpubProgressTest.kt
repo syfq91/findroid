@@ -3,6 +3,7 @@ package dev.jdtech.jellyfin
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.mediatype.MediaType
@@ -137,5 +138,116 @@ class EpubProgressTest {
             )
         assertEquals(1, page)
         assertEquals(1, total)
+    }
+
+    @Test
+    fun testResolveChapterTitleUsesLocatorTitleWhenAvailable() {
+        val locator =
+            Locator(
+                href = Url("ch1.xhtml")!!,
+                mediaType = MediaType.XHTML,
+                title = "Chapter 1: The Beginning",
+            )
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = locator,
+                bookTitle = "Sample Book",
+            )
+        assertEquals("Chapter 1: The Beginning", resolved)
+    }
+
+    @Test
+    fun testResolveChapterTitleFallsBackToToc() {
+        val locator =
+            Locator(
+                href = Url("ch2.xhtml#section1")!!,
+                mediaType = MediaType.XHTML,
+            )
+        val toc =
+            listOf(
+                Link(href = Url("ch1.xhtml")!!, title = "Chapter 1"),
+                Link(href = Url("ch2.xhtml")!!, title = "Chapter 2"),
+            )
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = locator,
+                tableOfContents = toc,
+                bookTitle = "Sample Book",
+            )
+        assertEquals("Chapter 2", resolved)
+    }
+
+    @Test
+    fun testResolveChapterTitleNestedTocChild() {
+        val locator =
+            Locator(
+                href = Url("ch1.xhtml#sub1")!!,
+                mediaType = MediaType.XHTML,
+            )
+        val child = Link(href = Url("ch1.xhtml#sub1")!!, title = "Subsection 1.1")
+        val toc =
+            listOf(
+                Link(
+                    href = Url("ch1.xhtml")!!,
+                    title = "Chapter 1",
+                    children = listOf(child),
+                )
+            )
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = locator,
+                tableOfContents = toc,
+                bookTitle = "Sample Book",
+            )
+        assertEquals("Subsection 1.1", resolved)
+    }
+
+    @Test
+    fun testResolveChapterTitleFallsBackToReadingOrder() {
+        val locator =
+            Locator(
+                href = Url("intro.xhtml")!!,
+                mediaType = MediaType.XHTML,
+            )
+        val readingOrder =
+            listOf(
+                Link(href = Url("intro.xhtml")!!, title = "Introduction"),
+                Link(href = Url("ch1.xhtml")!!, title = "Chapter 1"),
+            )
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = locator,
+                readingOrder = readingOrder,
+                bookTitle = "Sample Book",
+            )
+        assertEquals("Introduction", resolved)
+    }
+
+    @Test
+    fun testResolveChapterTitleFallsBackToBookTitleWhenChapterNotAvailable() {
+        // Typical CBZ or EPUB without chapter titles
+        val locator =
+            Locator(
+                href = Url("001.jpg")!!,
+                mediaType = MediaType.JPEG,
+            )
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = locator,
+                tableOfContents = emptyList(),
+                readingOrder = listOf(Link(href = Url("001.jpg")!!)),
+                bookTitle = "My Manga Vol. 1",
+            )
+        assertEquals("My Manga Vol. 1", resolved)
+    }
+
+    @Test
+    fun testResolveChapterTitleFallsBackToBookTitleWhenLocatorNull() {
+        val resolved =
+            BookReaderActivity.resolveChapterTitle(
+                locator = null,
+                bookTitle = "My Book",
+            )
+        assertEquals("My Book", resolved)
     }
 }
