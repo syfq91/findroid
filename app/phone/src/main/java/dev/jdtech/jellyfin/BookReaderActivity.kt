@@ -35,9 +35,11 @@ import dev.jdtech.jellyfin.presentation.theme.FindroidTheme
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
+import java.util.zip.ZipFile
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -66,6 +68,7 @@ import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgres
 import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.util.AbsoluteUrl
 import org.readium.r2.shared.util.asset.AssetRetriever
+import org.readium.r2.shared.util.format.FormatHints
 import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.streamer.PublicationOpener
@@ -313,6 +316,60 @@ class BookReaderActivity : AppCompatActivity() {
         }
     }
 
+    private fun detectBookFormat(file: File): String {
+        try {
+            ZipFile(file).use { zip ->
+                if (
+                    zip.getEntry("META-INF/container.xml") != null ||
+                        zip.getEntry("mimetype") != null
+                ) {
+                    return "epub"
+                }
+                val hasImages =
+                    zip.entries().asSequence().any { entry ->
+                        !entry.isDirectory &&
+                            entry.name.lowercase().let { name ->
+                                name.endsWith(".jpg") ||
+                                    name.endsWith(".jpeg") ||
+                                    name.endsWith(".png") ||
+                                    name.endsWith(".webp") ||
+                                    name.endsWith(".avif") ||
+                                    name.endsWith(".gif")
+                            }
+                    }
+                if (hasImages) {
+                    return "cbz"
+                }
+            }
+        } catch (_: Exception) {
+            try {
+                FileInputStream(file).use { input ->
+                    val header = ByteArray(7)
+                    val read = input.read(header)
+                    if (read >= 4) {
+                        if (
+                            header[0] == 0x52.toByte() &&
+                                header[1] == 0x61.toByte() &&
+                                header[2] == 0x72.toByte() &&
+                                header[3] == 0x21.toByte()
+                        ) {
+                            return "cbr"
+                        }
+                        if (
+                            header[0] == 0x25.toByte() &&
+                                header[1] == 0x50.toByte() &&
+                                header[2] == 0x44.toByte() &&
+                                header[3] == 0x46.toByte()
+                        ) {
+                            return "pdf"
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return "epub"
+    }
+
     private suspend fun prepareBookFile(): PreparedBook =
         withContext(Dispatchers.IO) {
             var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
@@ -328,7 +385,13 @@ class BookReaderActivity : AppCompatActivity() {
                     val localFile = File(localSource.path)
                     if (localFile.exists() && localFile.length() > 0) {
                         Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
-                        return@withContext PreparedBook(localFile, serverPositionTicks)
+                        val detected = detectBookFormat(localFile)
+                        val ext =
+                            container?.lowercase()?.removePrefix(".")?.takeIf {
+                                it in listOf("cbz", "cbr", "epub", "pdf")
+                            } ?: detected
+                        val hints = FormatHints().addFileExtension(ext)
+                        return@withContext PreparedBook(localFile, serverPositionTicks, hints)
                     }
                 }
             } catch (e: Exception) {
@@ -336,30 +399,30 @@ class BookReaderActivity : AppCompatActivity() {
             }
 
             val booksDir = File(cacheDir, "books").apply { mkdirs() }
-            val rawExtension = container?.lowercase()?.removePrefix(".") ?: "epub"
-            val extension =
-                when (rawExtension) {
-                    "cbz",
-                    "cbr",
-                    "zip",
-                    "rar" -> rawExtension
-                    else -> "epub"
-                }
-
-            val targetFile = File(booksDir, "$bookId.$extension")
-            if (targetFile.exists() && targetFile.length() > 0) {
-                return@withContext PreparedBook(targetFile, serverPositionTicks)
-            }
-
             val existing =
                 booksDir
                     .listFiles { _, name -> name.startsWith("$bookId.") && !name.endsWith(".tmp") }
                     ?.firstOrNull { it.length() > 0 }
             if (existing != null) {
-                return@withContext PreparedBook(existing, serverPositionTicks)
+                val detected = detectBookFormat(existing)
+                val resolvedFile =
+                    if (
+                        existing.extension != detected &&
+                            (detected == "cbz" || detected == "cbr" || detected == "epub")
+                    ) {
+                        val corrected = File(booksDir, "$bookId.$detected")
+                        if (corrected.exists()) corrected.delete()
+                        existing.renameTo(corrected)
+                        corrected
+                    } else {
+                        existing
+                    }
+                val hints =
+                    FormatHints().addFileExtension(resolvedFile.extension.ifBlank { detected })
+                return@withContext PreparedBook(resolvedFile, serverPositionTicks, hints)
             }
 
-            val tempFile = File(booksDir, "$bookId.$extension.tmp")
+            val tempFile = File(booksDir, "$bookId.tmp")
 
             try {
                 jellyfinRepository.openDownloadStream(bookUUID).use { input ->
@@ -370,19 +433,32 @@ class BookReaderActivity : AppCompatActivity() {
                 throw e
             }
 
+            val detected = detectBookFormat(tempFile)
+            val finalExt =
+                container?.lowercase()?.removePrefix(".")?.takeIf {
+                    it in listOf("cbz", "cbr", "epub", "pdf")
+                } ?: detected
+
+            val targetFile = File(booksDir, "$bookId.$finalExt")
             if (targetFile.exists()) targetFile.delete()
             tempFile.renameTo(targetFile)
-            PreparedBook(targetFile, serverPositionTicks)
+            val hints = FormatHints().addFileExtension(finalExt)
+            PreparedBook(targetFile, serverPositionTicks, hints)
         }
 
     /** The resolved book file plus the reading position the server has for it, in ticks. */
-    private data class PreparedBook(val file: File, val serverPositionTicks: Long)
+    private data class PreparedBook(
+        val file: File,
+        val serverPositionTicks: Long,
+        val formatHints: FormatHints? = null,
+    )
 
     private suspend fun openPublication(prepared: PreparedBook, savedInstanceState: Bundle?) {
         val httpClient = DefaultHttpClient()
         val assetRetriever = AssetRetriever(contentResolver, httpClient)
+        val hints = prepared.formatHints ?: FormatHints()
         val asset =
-            assetRetriever.retrieve(prepared.file).getOrElse {
+            assetRetriever.retrieve(prepared.file, hints).getOrElse {
                 throw IOException("Failed to read book file: $it")
             }
         val streamer =

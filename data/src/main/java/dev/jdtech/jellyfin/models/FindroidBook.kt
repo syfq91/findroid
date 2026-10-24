@@ -133,7 +133,13 @@ suspend fun BaseItemDto.toFindroidBook(
         genres = genres ?: emptyList(),
         communityRating = communityRating,
         productionYear = productionYear,
-        container = container ?: mediaSources?.firstOrNull()?.container,
+        container =
+            container?.takeIf { it.isNotBlank() }
+                ?: mediaSources?.firstOrNull()?.container?.takeIf { it.isNotBlank() }
+                ?: mediaSources?.firstOrNull()?.path?.substringAfterLast('.', "")?.takeIf {
+                    it.isNotBlank()
+                }
+                ?: path?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() },
         size = mediaSources?.firstOrNull()?.size,
         images = toFindroidImages(jellyfinRepository),
     )
