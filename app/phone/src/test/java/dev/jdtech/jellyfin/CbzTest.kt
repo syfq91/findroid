@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.services.positions
+import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.asset.DefaultArchiveOpener
 import org.readium.r2.shared.util.asset.DefaultFormatSniffer
@@ -682,5 +683,10 @@ class CbzTest {
                 throw IllegalStateException()
             }
         assertTrue(pub.conformsTo(Publication.Profile.EPUB))
+        val positionsByReadingOrder = pub.positionsByReadingOrder()
+        assertNotNull(positionsByReadingOrder)
+        assertTrue(positionsByReadingOrder.isNotEmpty())
+        val chapter1Positions = positionsByReadingOrder[0]
+        assertTrue(chapter1Positions.isNotEmpty())
     }
 }

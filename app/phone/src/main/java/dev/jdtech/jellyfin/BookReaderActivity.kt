@@ -68,7 +68,9 @@ import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgression
 import org.readium.r2.shared.publication.indexOfFirstWithHref
 import org.readium.r2.shared.publication.services.positions
+import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.AbsoluteUrl
+import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.format.FormatHints
 import org.readium.r2.shared.util.getOrElse
@@ -94,6 +96,10 @@ class BookReaderActivity : AppCompatActivity() {
     private var publication: Publication? = null
     private var navigator: OverflowableNavigator? = null
     private var locatorJob: Job? = null
+    private var positionsByReadingOrder: List<List<Locator>> = emptyList()
+    private var epubChapterHref: Url? = null
+    private var epubChapterPage: Int = 1
+    private var epubChapterTotalPages: Int = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -216,6 +222,7 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun applyPreferences() {
+        epubChapterHref = null
         val epubPrefs = buildEpubPreferences()
         (navigator as? EpubNavigatorFragment)?.submitPreferences(epubPrefs)
         updateBackgroundTheme()
@@ -437,6 +444,17 @@ class BookReaderActivity : AppCompatActivity() {
                 }
             }
         this.publication = pub
+        this.positionsByReadingOrder =
+            if (!pub.conformsTo(Publication.Profile.DIVINA)) {
+                try {
+                    pub.positionsByReadingOrder()
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not load positionsByReadingOrder")
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
 
         applyReadingProgression(pub)
 
@@ -553,6 +571,23 @@ class BookReaderActivity : AppCompatActivity() {
         initialLocator: Locator?,
         savedInstanceState: Bundle?,
     ) {
+        val paginationListener =
+            object : EpubNavigatorFragment.PaginationListener {
+                override fun onPageChanged(
+                    pageIndex: Int,
+                    totalPages: Int,
+                    locator: Locator,
+                ) {
+                    val isScroll = appPreferences.getValue(appPreferences.readerScroll)
+                    if (!isScroll) {
+                        epubChapterHref = locator.href.removeFragment().removeQuery()
+                        epubChapterPage = pageIndex + 1
+                        epubChapterTotalPages = totalPages.coerceAtLeast(1)
+                        binding.textProgress.text = "$epubChapterPage/$epubChapterTotalPages"
+                    }
+                }
+            }
+
         val navigatorFactory = EpubNavigatorFactory(pub)
         supportFragmentManager.fragmentFactory =
             navigatorFactory.createFragmentFactory(
@@ -566,6 +601,7 @@ class BookReaderActivity : AppCompatActivity() {
                             }
                         }
                     },
+                paginationListener = paginationListener,
             )
 
         val fragment =
@@ -581,7 +617,17 @@ class BookReaderActivity : AppCompatActivity() {
                     .commit()
                 created
             } else {
-                supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? EpubNavigatorFragment
+                (supportFragmentManager.findFragmentByTag(TAG_NAVIGATOR) as? EpubNavigatorFragment)
+                    ?.also { existing ->
+                        try {
+                            val field =
+                                EpubNavigatorFragment::class
+                                    .java
+                                    .getDeclaredField("paginationListener")
+                            field.isAccessible = true
+                            field.set(existing, paginationListener)
+                        } catch (_: Exception) {}
+                    }
                     ?: (supportFragmentManager.fragmentFactory.instantiate(
                             classLoader,
                             EpubNavigatorFragment::class.java.name,
@@ -647,9 +693,19 @@ class BookReaderActivity : AppCompatActivity() {
                     }
             binding.textProgress.text = "$currentPage/$totalPages"
         } else {
-            val progression = locator.locations.totalProgression ?: 0.0
-            val percent = (progression * 100).toInt()
-            binding.textProgress.text = "$percent%"
+            val chapterIndex = pub?.readingOrder?.indexOfFirstWithHref(locator.href)
+            val isScroll = appPreferences.getValue(appPreferences.readerScroll)
+            val (currentPage, totalPages) =
+                calculateEpubChapterProgress(
+                    locator = locator,
+                    readingOrderIndex = chapterIndex,
+                    positionsByReadingOrder = positionsByReadingOrder,
+                    cachedChapterHref = epubChapterHref,
+                    cachedPage = epubChapterPage,
+                    cachedTotalPages = epubChapterTotalPages,
+                    isScrollMode = isScroll,
+                )
+            binding.textProgress.text = "$currentPage/$totalPages"
         }
 
         locator.title?.let { if (it.isNotBlank()) binding.textChapterTitle.text = it }
@@ -914,6 +970,47 @@ class BookReaderActivity : AppCompatActivity() {
                     else -> null
                 }
             return FormatHints(mediaTypes = listOfNotNull(mediaType)).addFileExtension(ext)
+        }
+
+        internal fun calculateEpubChapterProgress(
+            locator: Locator,
+            readingOrderIndex: Int?,
+            positionsByReadingOrder: List<List<Locator>>,
+            cachedChapterHref: Url? = null,
+            cachedPage: Int? = null,
+            cachedTotalPages: Int? = null,
+            isScrollMode: Boolean = false,
+        ): Pair<Int, Int> {
+            val normalizedHref = locator.href.removeFragment().removeQuery()
+            val totalPages =
+                if (
+                    !isScrollMode &&
+                        cachedChapterHref == normalizedHref &&
+                        cachedTotalPages != null &&
+                        cachedTotalPages > 0
+                ) {
+                    cachedTotalPages
+                } else if (
+                    readingOrderIndex != null &&
+                        readingOrderIndex in positionsByReadingOrder.indices
+                ) {
+                    positionsByReadingOrder[readingOrderIndex].size.coerceAtLeast(1)
+                } else {
+                    1
+                }
+            val currentPage =
+                if (
+                    !isScrollMode &&
+                        cachedChapterHref == normalizedHref &&
+                        cachedPage != null &&
+                        cachedPage in 1..totalPages
+                ) {
+                    cachedPage
+                } else {
+                    val progression = locator.locations.progression ?: 0.0
+                    ((progression + 1e-5) * totalPages).toInt().coerceIn(0, totalPages - 1) + 1
+                }
+            return currentPage to totalPages
         }
     }
 }
