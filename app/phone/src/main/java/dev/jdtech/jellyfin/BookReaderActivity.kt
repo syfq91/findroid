@@ -38,6 +38,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.zip.ZipFile
 import javax.inject.Inject
@@ -72,8 +73,10 @@ import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.format.FormatHints
 import org.readium.r2.shared.util.getOrElse
 import org.readium.r2.shared.util.http.DefaultHttpClient
+import org.readium.r2.shared.util.mediatype.MediaType
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.DefaultPublicationParser
+import org.readium.r2.streamer.parser.image.ImageParser
 import timber.log.Timber
 
 @OptIn(ExperimentalReadiumApi::class, FlowPreview::class)
@@ -317,60 +320,6 @@ class BookReaderActivity : AppCompatActivity() {
         }
     }
 
-    private fun detectBookFormat(file: File): String {
-        try {
-            ZipFile(file).use { zip ->
-                if (
-                    zip.getEntry("META-INF/container.xml") != null ||
-                        zip.getEntry("mimetype") != null
-                ) {
-                    return "epub"
-                }
-                val hasImages =
-                    zip.entries().asSequence().any { entry ->
-                        !entry.isDirectory &&
-                            entry.name.lowercase().let { name ->
-                                name.endsWith(".jpg") ||
-                                    name.endsWith(".jpeg") ||
-                                    name.endsWith(".png") ||
-                                    name.endsWith(".webp") ||
-                                    name.endsWith(".avif") ||
-                                    name.endsWith(".gif")
-                            }
-                    }
-                if (hasImages) {
-                    return "cbz"
-                }
-            }
-        } catch (_: Exception) {
-            try {
-                FileInputStream(file).use { input ->
-                    val header = ByteArray(7)
-                    val read = input.read(header)
-                    if (read >= 4) {
-                        if (
-                            header[0] == 0x52.toByte() &&
-                                header[1] == 0x61.toByte() &&
-                                header[2] == 0x72.toByte() &&
-                                header[3] == 0x21.toByte()
-                        ) {
-                            return "cbr"
-                        }
-                        if (
-                            header[0] == 0x25.toByte() &&
-                                header[1] == 0x50.toByte() &&
-                                header[2] == 0x44.toByte() &&
-                                header[3] == 0x46.toByte()
-                        ) {
-                            return "pdf"
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-        return "epub"
-    }
-
     private suspend fun prepareBookFile(): PreparedBook =
         withContext(Dispatchers.IO) {
             var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
@@ -386,12 +335,12 @@ class BookReaderActivity : AppCompatActivity() {
                     val localFile = File(localSource.path)
                     if (localFile.exists() && localFile.length() > 0) {
                         Timber.d("Using downloaded local book file: ${localFile.absolutePath}")
-                        val detected = detectBookFormat(localFile)
+                        val detected = detectBookFormat(localFile, container)
                         val ext =
                             container?.lowercase()?.removePrefix(".")?.takeIf {
                                 it in listOf("cbz", "cbr", "epub", "pdf")
                             } ?: detected
-                        val hints = FormatHints().addFileExtension(ext)
+                        val hints = buildFormatHints(ext)
                         return@withContext PreparedBook(localFile, serverPositionTicks, hints)
                     }
                 }
@@ -405,21 +354,23 @@ class BookReaderActivity : AppCompatActivity() {
                     .listFiles { _, name -> name.startsWith("$bookId.") && !name.endsWith(".tmp") }
                     ?.firstOrNull { it.length() > 0 }
             if (existing != null) {
-                val detected = detectBookFormat(existing)
+                val detected = detectBookFormat(existing, container)
+                val targetExt =
+                    container?.lowercase()?.removePrefix(".")?.takeIf {
+                        it in listOf("cbz", "cbr", "epub", "pdf")
+                    } ?: detected
                 val resolvedFile =
                     if (
-                        existing.extension != detected &&
-                            (detected == "cbz" || detected == "cbr" || detected == "epub")
+                        existing.extension.lowercase() != targetExt &&
+                            (targetExt in listOf("cbz", "cbr", "epub", "pdf"))
                     ) {
-                        val corrected = File(booksDir, "$bookId.$detected")
-                        if (corrected.exists()) corrected.delete()
-                        existing.renameTo(corrected)
-                        corrected
+                        val corrected = File(booksDir, "$bookId.$targetExt")
+                        safeMoveOrCopy(existing, corrected)
                     } else {
                         existing
                     }
-                val hints =
-                    FormatHints().addFileExtension(resolvedFile.extension.ifBlank { detected })
+                val finalExt = resolvedFile.extension.lowercase().ifBlank { targetExt }
+                val hints = buildFormatHints(finalExt)
                 return@withContext PreparedBook(resolvedFile, serverPositionTicks, hints)
             }
 
@@ -434,17 +385,16 @@ class BookReaderActivity : AppCompatActivity() {
                 throw e
             }
 
-            val detected = detectBookFormat(tempFile)
+            val detected = detectBookFormat(tempFile, container)
             val finalExt =
                 container?.lowercase()?.removePrefix(".")?.takeIf {
                     it in listOf("cbz", "cbr", "epub", "pdf")
                 } ?: detected
 
             val targetFile = File(booksDir, "$bookId.$finalExt")
-            if (targetFile.exists()) targetFile.delete()
-            tempFile.renameTo(targetFile)
-            val hints = FormatHints().addFileExtension(finalExt)
-            PreparedBook(targetFile, serverPositionTicks, hints)
+            val resolvedFile = safeMoveOrCopy(tempFile, targetFile)
+            val hints = buildFormatHints(finalExt)
+            PreparedBook(resolvedFile, serverPositionTicks, hints)
         }
 
     /** The resolved book file plus the reading position the server has for it, in ticks. */
@@ -472,8 +422,19 @@ class BookReaderActivity : AppCompatActivity() {
                 )
             )
         val pub =
-            streamer.open(asset, allowUserInteraction = false).getOrElse {
-                throw IOException("Failed to open book: $it")
+            streamer.open(asset, allowUserInteraction = false).getOrElse { error ->
+                if (
+                    prepared.file.extension.equals("cbz", ignoreCase = true) ||
+                        prepared.formatHints?.hasFileExtension("cbz") == true
+                ) {
+                    val fallbackOpener =
+                        PublicationOpener(ImageParser(assetRetriever = assetRetriever))
+                    fallbackOpener.open(asset, allowUserInteraction = false).getOrElse {
+                        throw IOException("Failed to open book: $error")
+                    }
+                } else {
+                    throw IOException("Failed to open book: $error")
+                }
             }
         this.publication = pub
 
@@ -504,7 +465,12 @@ class BookReaderActivity : AppCompatActivity() {
                 null
             }
         }
-        if (localLocator != null) return localLocator
+        if (localLocator != null) {
+            val matchingIndex = pub.readingOrder.indexOfFirstWithHref(localLocator.href)
+            if (matchingIndex != null && matchingIndex >= 0) {
+                return localLocator
+            }
+        }
 
         return locatorFromServerProgress(pub, serverPositionTicks)
     }
@@ -801,6 +767,153 @@ class BookReaderActivity : AppCompatActivity() {
                     putExtra(EXTRA_BOOK_CONTAINER, container)
                 }
             }
+        }
+
+        internal fun detectBookFormat(file: File, containerHint: String? = null): String {
+            val header = ByteArray(7)
+            try {
+                FileInputStream(file).use { input -> input.read(header) }
+            } catch (_: Exception) {}
+
+            if (
+                header.size >= 4 &&
+                    header[0] == 0x25.toByte() &&
+                    header[1] == 0x50.toByte() &&
+                    header[2] == 0x44.toByte() &&
+                    header[3] == 0x46.toByte()
+            ) {
+                return "pdf"
+            }
+
+            if (
+                header.size >= 4 &&
+                    header[0] == 0x52.toByte() &&
+                    header[1] == 0x61.toByte() &&
+                    header[2] == 0x72.toByte() &&
+                    header[3] == 0x21.toByte()
+            ) {
+                return "cbr"
+            }
+
+            val comicImageExtensions =
+                setOf(
+                    "jpg",
+                    "jpeg",
+                    "png",
+                    "webp",
+                    "avif",
+                    "gif",
+                    "bmp",
+                    "dib",
+                    "tif",
+                    "tiff",
+                    "jxl",
+                )
+
+            // Try opening as ZIP. Use UTF-8 first, and fall back to ISO-8859-1 for non-UTF8 entry
+            // encodings (e.g. Shift-JIS manga).
+            val zipFile =
+                try {
+                    ZipFile(file, StandardCharsets.UTF_8)
+                } catch (_: Exception) {
+                    try {
+                        ZipFile(file, StandardCharsets.ISO_8859_1)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+            zipFile?.use { zip ->
+                // 1. Strict EPUB verification:
+                // Standard EPUB must contain META-INF/container.xml
+                if (zip.getEntry("META-INF/container.xml") != null) {
+                    return "epub"
+                }
+                // If it has a mimetype entry, check if its content is application/epub+zip
+                val mimetypeEntry = zip.getEntry("mimetype")
+                if (mimetypeEntry != null) {
+                    try {
+                        val mimeContent =
+                            zip.getInputStream(mimetypeEntry).use {
+                                it.bufferedReader(StandardCharsets.US_ASCII).readText().trim()
+                            }
+                        if (mimeContent.startsWith("application/epub+zip", ignoreCase = true)) {
+                            return "epub"
+                        }
+                        if (
+                            mimeContent.startsWith(
+                                "application/vnd.comicbook+zip",
+                                ignoreCase = true,
+                            ) || mimeContent.startsWith("application/x-cbz", ignoreCase = true)
+                        ) {
+                            return "cbz"
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Comic verification:
+                // ComicRack / Komga metadata or comic images
+                if (zip.getEntry("ComicInfo.xml") != null) {
+                    return "cbz"
+                }
+
+                val hasImages =
+                    zip.entries().asSequence().any { entry ->
+                        if (entry.isDirectory) return@any false
+                        val ext = entry.name.substringAfterLast('.', "").lowercase()
+                        ext in comicImageExtensions
+                    }
+                if (hasImages) {
+                    return "cbz"
+                }
+            }
+
+            // 3. Fallback based on hint or file extension
+            val normalizedHint = containerHint?.lowercase()?.removePrefix(".")
+            if (normalizedHint in listOf("cbz", "cbr", "epub", "pdf")) {
+                return normalizedHint!!
+            }
+            if (normalizedHint == "zip") {
+                return "cbz"
+            }
+
+            val fileExt = file.extension.lowercase()
+            if (fileExt in listOf("cbz", "cbr", "epub", "pdf")) {
+                return fileExt
+            }
+
+            return "epub"
+        }
+
+        internal fun safeMoveOrCopy(source: File, target: File): File {
+            if (source.absolutePath == target.absolutePath) return source
+            if (target.exists()) {
+                target.delete()
+            }
+            if (source.renameTo(target)) {
+                return target
+            }
+            try {
+                source.copyTo(target, overwrite = true)
+                source.delete()
+                if (target.exists() && target.length() > 0) {
+                    return target
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to copy file from ${source.name} to ${target.name}")
+            }
+            return source
+        }
+
+        internal fun buildFormatHints(ext: String): FormatHints {
+            val mediaType =
+                when (ext.lowercase()) {
+                    "cbz" -> MediaType.CBZ
+                    "epub" -> MediaType.EPUB
+                    "pdf" -> MediaType.PDF
+                    else -> null
+                }
+            return FormatHints(mediaTypes = listOfNotNull(mediaType)).addFileExtension(ext)
         }
     }
 }
