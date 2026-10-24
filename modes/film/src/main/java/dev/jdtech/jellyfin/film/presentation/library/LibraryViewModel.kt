@@ -54,7 +54,7 @@ constructor(
                 CollectionType.Movies -> listOf(BaseItemKind.MOVIE)
                 CollectionType.TvShows -> listOf(BaseItemKind.SERIES)
                 CollectionType.BoxSets -> listOf(BaseItemKind.BOX_SET)
-                CollectionType.Books -> listOf(BaseItemKind.BOOK)
+                CollectionType.Books -> listOf(BaseItemKind.FOLDER, BaseItemKind.BOOK)
                 CollectionType.Mixed,
                 CollectionType.Folders ->
                     listOf(
