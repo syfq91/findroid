@@ -65,6 +65,7 @@ import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.ReadingProgression as PubReadingProgression
+import org.readium.r2.shared.publication.indexOfFirstWithHref
 import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.util.AbsoluteUrl
 import org.readium.r2.shared.util.asset.AssetRetriever
@@ -666,9 +667,24 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun onLocatorChanged(locator: Locator) {
-        val progression = locator.locations.totalProgression ?: 0.0
-        val percent = (progression * 100).toInt()
-        binding.textProgress.text = "$percent%"
+        val pub = publication
+        if (pub != null && pub.conformsTo(Publication.Profile.DIVINA)) {
+            val totalPages = pub.readingOrder.size
+            val currentPage =
+                locator.locations.position
+                    ?: pub.readingOrder.indexOfFirstWithHref(locator.href)?.let { it + 1 }
+                    ?: if (totalPages > 0) {
+                        val progression = locator.locations.totalProgression ?: 0.0
+                        ((progression * totalPages).toInt() + 1).coerceIn(1, totalPages)
+                    } else {
+                        1
+                    }
+            binding.textProgress.text = "$currentPage/$totalPages"
+        } else {
+            val progression = locator.locations.totalProgression ?: 0.0
+            val percent = (progression * 100).toInt()
+            binding.textProgress.text = "$percent%"
+        }
 
         locator.title?.let { if (it.isNotBlank()) binding.textChapterTitle.text = it }
 
