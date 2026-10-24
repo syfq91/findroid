@@ -63,6 +63,7 @@ import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.FontFamily
 import org.readium.r2.navigator.preferences.ReadingProgression as NavReadingProgression
 import org.readium.r2.navigator.preferences.Theme
+import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.ExperimentalReadiumApi
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
@@ -142,6 +143,10 @@ class BookReaderActivity : AppCompatActivity() {
         binding.buttonNextPage.setOnClickListener { navigator?.goForward(animated = true) }
 
         binding.readerStatusBar.setOnClickListener { toggleControls() }
+
+        binding.controlsOverlay.setOnClickListener { toggleControls() }
+        binding.topBar.setOnClickListener { /* Consume clicks to prevent dismissing controls */ }
+        binding.bottomBar.setOnClickListener { /* Consume clicks to prevent dismissing controls */ }
 
         val baseHorizontalPadding = (16 * resources.displayMetrics.density).toInt()
         val baseBottomPadding = (6 * resources.displayMetrics.density).toInt()
@@ -716,6 +721,12 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private fun setupInputListener(nav: OverflowableNavigator) {
+        nav.addInputListener(
+            DirectionalNavigationAdapter(
+                navigator = nav,
+                animatedTransition = true,
+            )
+        )
         nav.addInputListener(
             object : InputListener {
                 override fun onTap(event: TapEvent): Boolean {
