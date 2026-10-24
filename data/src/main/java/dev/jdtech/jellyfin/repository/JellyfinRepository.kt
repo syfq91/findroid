@@ -118,6 +118,10 @@ interface JellyfinRepository {
 
     fun getDownloadUrl(itemId: UUID): String
 
+    fun getAuthorizationHeader(): String?
+
+    fun getAccessToken(): String?
+
     /**
      * Opens an authenticated stream to the item's download using an `Authorization` header, rather
      * than embedding the access token in the URL. Callers that can send headers should prefer this

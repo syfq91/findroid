@@ -331,6 +331,10 @@ class JellyfinRepositoryOfflineImpl(
         return ""
     }
 
+    override fun getAuthorizationHeader(): String? = null
+
+    override fun getAccessToken(): String? = null
+
     override suspend fun openDownloadStream(itemId: UUID): InputStream {
         // Offline mode has no server to stream a download from. Callers are expected to use a
         // local source instead; surface a clear failure if one is requested.

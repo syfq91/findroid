@@ -80,10 +80,10 @@ class DownloaderImpl(
                     UiText.StringResource(CoreR.string.storage_unavailable),
                 )
             }
-            val path =
-                Uri.fromFile(File(storageLocation, "downloads/${item.id}.${source.id}.download"))
+            val downloadsDir = File(storageLocation, "downloads").apply { mkdirs() }
+            val path = Uri.fromFile(File(downloadsDir, "${item.id}.${source.id}.download"))
             val stats = StatFs(storageLocation.path)
-            if (stats.availableBytes < source.size) {
+            if (source.size > 0 && stats.availableBytes < source.size) {
                 return@coroutineScope Pair(
                     -1,
                     UiText.StringResource(
@@ -106,6 +106,15 @@ class DownloaderImpl(
                         DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                     )
                     .setDestinationUri(path)
+            val authHeader = jellyfinRepository.getAuthorizationHeader()
+            if (!authHeader.isNullOrBlank()) {
+                request.addRequestHeader("Authorization", authHeader)
+            }
+            val token = jellyfinRepository.getAccessToken()
+            if (!token.isNullOrBlank()) {
+                request.addRequestHeader("X-Emby-Token", token)
+                request.addRequestHeader("X-MediaBrowser-Token", token)
+            }
             val downloadId = downloadManager.enqueue(request)
 
             downloadable.persistDownloadMetadata(
@@ -222,13 +231,14 @@ class DownloaderImpl(
         source: FindroidSource,
         storageIndex: Int = 0,
     ) {
-        val storageLocation = context.getExternalFilesDirs(null)[storageIndex]
+        val storageLocation = context.getExternalFilesDirs(null)[storageIndex] ?: return
+        val downloadsDir = File(storageLocation, "downloads").apply { mkdirs() }
+        val authHeader = jellyfinRepository.getAuthorizationHeader()
+        val token = jellyfinRepository.getAccessToken()
         for (mediaStream in source.mediaStreams.filter { it.isExternal }) {
             val id = UUID.randomUUID()
             val streamPath =
-                Uri.fromFile(
-                    File(storageLocation, "downloads/${item.id}.${source.id}.$id.download")
-                )
+                Uri.fromFile(File(downloadsDir, "${item.id}.${source.id}.$id.download"))
             database.insertMediaStream(
                 mediaStream.toFindroidMediaStreamDto(id, source.id, streamPath.path.orEmpty())
             )
@@ -243,6 +253,13 @@ class DownloaderImpl(
                     )
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
                     .setDestinationUri(streamPath)
+            if (!authHeader.isNullOrBlank()) {
+                request.addRequestHeader("Authorization", authHeader)
+            }
+            if (!token.isNullOrBlank()) {
+                request.addRequestHeader("X-Emby-Token", token)
+                request.addRequestHeader("X-MediaBrowser-Token", token)
+            }
             val downloadId = downloadManager.enqueue(request)
             database.setMediaStreamDownloadId(id, downloadId)
         }

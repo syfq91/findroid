@@ -35,7 +35,7 @@ suspend fun MediaSourceInfo.toFindroidSource(
             else -> ""
         }
     return FindroidSource(
-        id = id.orEmpty(),
+        id = id?.ifBlank { itemId.toString() } ?: itemId.toString(),
         name = name.orEmpty(),
         type = FindroidSourceType.REMOTE,
         path = path,

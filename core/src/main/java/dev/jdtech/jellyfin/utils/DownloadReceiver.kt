@@ -17,6 +17,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import timber.log.Timber
 
 @AndroidEntryPoint
 class DownloadReceiver : BroadcastReceiver() {
@@ -34,13 +35,44 @@ class DownloadReceiver : BroadcastReceiver() {
             if (intent.action == "android.intent.action.DOWNLOAD_COMPLETE") {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
                 if (id != -1L) {
+                    val downloadManager = context.getSystemService(DownloadManager::class.java)
+                    var downloadStatus = -1
+                    var failureReason = -1
+                    try {
+                        downloadManager?.query(DownloadManager.Query().setFilterById(id))?.use {
+                            cursor ->
+                            if (cursor.moveToFirst()) {
+                                val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                                if (statusIdx != -1) downloadStatus = cursor.getInt(statusIdx)
+                                val reasonIdx = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                                if (reasonIdx != -1) failureReason = cursor.getInt(reasonIdx)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Timber.w(e, "Failed to query download status for downloadId $id")
+                    }
+
                     val source = database.getSourceByDownloadId(id)
                     if (source != null) {
                         val path = source.path.replace(".download", "")
-                        val successfulRename = File(source.path).renameTo(File(path))
-                        if (successfulRename) {
+                        val sourceFile = File(source.path)
+                        val targetFile = File(path)
+                        val isSuccess =
+                            downloadStatus == DownloadManager.STATUS_SUCCESSFUL ||
+                                (downloadStatus == -1 &&
+                                    sourceFile.exists() &&
+                                    sourceFile.length() > 0)
+                        val successfulMove = isSuccess && safeMove(sourceFile, targetFile)
+
+                        if (successfulMove) {
+                            Timber.d(
+                                "Download completed successfully for source ${source.id}, saved to $path"
+                            )
                             database.setSourcePath(source.id, path)
                         } else {
+                            Timber.w(
+                                "Download failed or move failed for source ${source.id} (itemId=${source.itemId}, status=$downloadStatus, reason=$failureReason)"
+                            )
                             val items = mutableListOf<FindroidItem>()
                             items.addAll(
                                 database.getMovies().map {
@@ -68,10 +100,25 @@ class DownloadReceiver : BroadcastReceiver() {
                         val mediaStream = database.getMediaStreamByDownloadId(id)
                         if (mediaStream != null) {
                             val path = mediaStream.path.replace(".download", "")
-                            val successfulRename = File(mediaStream.path).renameTo(File(path))
-                            if (successfulRename) {
+                            val sourceFile = File(mediaStream.path)
+                            val targetFile = File(path)
+                            val isSuccess =
+                                downloadStatus == DownloadManager.STATUS_SUCCESSFUL ||
+                                    (downloadStatus == -1 &&
+                                        sourceFile.exists() &&
+                                        sourceFile.length() > 0)
+                            val successfulMove = isSuccess && safeMove(sourceFile, targetFile)
+                            if (successfulMove) {
+                                Timber.d(
+                                    "Download completed successfully for media stream ${mediaStream.id}, saved to $path"
+                                )
                                 database.setMediaStreamPath(mediaStream.id, path)
                             } else {
+                                Timber.w(
+                                    "Download failed or move failed for media stream ${mediaStream.id} (status=$downloadStatus, reason=$failureReason)"
+                                )
+                                sourceFile.delete()
+                                targetFile.delete()
                                 database.deleteMediaStream(mediaStream.id)
                             }
                         }
@@ -79,4 +126,28 @@ class DownloadReceiver : BroadcastReceiver() {
                 }
             }
         }
+
+    private fun safeMove(sourceFile: File, targetFile: File): Boolean {
+        if (!sourceFile.exists()) {
+            Timber.w("Downloaded file does not exist: ${sourceFile.absolutePath}")
+            return false
+        }
+        if (targetFile.exists()) {
+            targetFile.delete()
+        }
+        if (sourceFile.renameTo(targetFile)) {
+            return true
+        }
+        return try {
+            sourceFile.copyTo(targetFile, overwrite = true)
+            sourceFile.delete()
+            true
+        } catch (e: Exception) {
+            Timber.e(
+                e,
+                "Failed to copy/move ${sourceFile.absolutePath} to ${targetFile.absolutePath}",
+            )
+            false
+        }
+    }
 }

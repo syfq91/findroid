@@ -55,10 +55,16 @@ data class FindroidBook(
                     size = size ?: 0L,
                     mediaStreams = emptyList(),
                 )
-        return if (rawSource.path.isBlank() || !rawSource.path.startsWith("http")) {
-            rawSource.copy(path = repository.getDownloadUrl(id))
+        val withPath =
+            if (rawSource.path.isBlank() || !rawSource.path.startsWith("http")) {
+                rawSource.copy(path = repository.getDownloadUrl(id))
+            } else {
+                rawSource
+            }
+        return if (withPath.id.isBlank()) {
+            withPath.copy(id = id.toString())
         } else {
-            rawSource
+            withPath
         }
     }
 
@@ -83,11 +89,14 @@ suspend fun BaseItemDto.toFindroidBook(
     sources.addAll(
         mediaSources?.map {
             val src = it.toFindroidSource(jellyfinRepository, id)
-            if (src.path.isBlank() || !src.path.startsWith("http")) {
-                src.copy(path = jellyfinRepository.getDownloadUrl(id))
-            } else {
-                src
-            }
+            val resolvedId = src.id.ifBlank { id.toString() }
+            val resolvedPath =
+                if (src.path.isBlank() || !src.path.startsWith("http")) {
+                    jellyfinRepository.getDownloadUrl(id)
+                } else {
+                    src.path
+                }
+            src.copy(id = resolvedId, path = resolvedPath)
         } ?: emptyList()
     )
     if (serverDatabase != null) {

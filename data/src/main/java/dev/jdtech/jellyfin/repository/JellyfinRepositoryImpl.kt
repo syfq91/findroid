@@ -559,18 +559,28 @@ class JellyfinRepositoryImpl(
         return "$baseUrl/Items/$itemId/Download?api_key=$token"
     }
 
+    override fun getAuthorizationHeader(): String? {
+        val api = jellyfinApi.api
+        val token = api.accessToken ?: return null
+        return AuthorizationHeaderBuilder.buildHeader(
+            clientName = api.clientInfo.name,
+            clientVersion = api.clientInfo.version,
+            deviceId = api.deviceInfo.id,
+            deviceName = api.deviceInfo.name,
+            accessToken = token,
+        )
+    }
+
+    override fun getAccessToken(): String? {
+        return jellyfinApi.api.accessToken
+    }
+
     override suspend fun openDownloadStream(itemId: UUID): InputStream =
         withContext(Dispatchers.IO) {
             val baseUrl = getBaseUrl().trimEnd('/')
-            val api = jellyfinApi.api
             val authorization =
-                AuthorizationHeaderBuilder.buildHeader(
-                    clientName = api.clientInfo.name,
-                    clientVersion = api.clientInfo.version,
-                    deviceId = api.deviceInfo.id,
-                    deviceName = api.deviceInfo.name,
-                    accessToken = api.accessToken,
-                )
+                getAuthorizationHeader()
+                    ?: throw IOException("Cannot open download stream: user is not authenticated")
 
             val connection =
                 (URL("$baseUrl/Items/$itemId/Download").openConnection() as HttpURLConnection)
