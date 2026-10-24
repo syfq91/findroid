@@ -206,7 +206,12 @@ class JellyfinRepositoryImpl(
                     jellyfinApi.userId!!,
                     filters = listOf(ItemFilter.IS_FAVORITE),
                     includeItemTypes =
-                        listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES, BaseItemKind.EPISODE),
+                        listOf(
+                            BaseItemKind.MOVIE,
+                            BaseItemKind.SERIES,
+                            BaseItemKind.EPISODE,
+                            BaseItemKind.BOOK,
+                        ),
                     recursive = true,
                 )
                 .content
@@ -616,22 +621,21 @@ class JellyfinRepositoryImpl(
 
     override suspend fun getDownloads(): List<FindroidItem> =
         withContext(Dispatchers.IO) {
+            val serverId = appPreferences.getValue(appPreferences.currentServer)
+            val userId = jellyfinApi.userId!!
             val items = mutableListOf<FindroidItem>()
-            items.addAll(
-                database
-                    .getMoviesByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
-                    .map { it.toFindroidMovie(database, jellyfinApi.userId!!) }
-            )
-            items.addAll(
-                database
-                    .getShowsByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
-                    .map { it.toFindroidShow(database, jellyfinApi.userId!!) }
-            )
-            items.addAll(
-                database
-                    .getBooksByServerId(appPreferences.getValue(appPreferences.currentServer)!!)
-                    .map { it.toFindroidBook(database, jellyfinApi.userId!!) }
-            )
+            val movies =
+                if (serverId != null) database.getMoviesByServerId(serverId)
+                else database.getMovies()
+            items.addAll(movies.map { it.toFindroidMovie(database, userId) })
+            val shows =
+                if (serverId != null) database.getShowsByServerId(serverId)
+                else database.getShows()
+            items.addAll(shows.map { it.toFindroidShow(database, userId) })
+            val books =
+                if (serverId != null) database.getBooksByServerId(serverId)
+                else database.getBooks()
+            items.addAll(books.map { it.toFindroidBook(database, userId) })
             items
         }
 

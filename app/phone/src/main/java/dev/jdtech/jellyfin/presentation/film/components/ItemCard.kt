@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import dev.jdtech.jellyfin.core.R
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyEpisode
 import dev.jdtech.jellyfin.core.presentation.dummy.dummyMovie
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidSeason
@@ -90,6 +91,7 @@ fun ItemCard(
                         item.name,
                     )
                 is FindroidSeason -> if (showSeriesName) item.name else null
+                is FindroidBook -> item.authors.joinToString(", ").takeIf { it.isNotBlank() }
                 else -> null
             }
         Text(

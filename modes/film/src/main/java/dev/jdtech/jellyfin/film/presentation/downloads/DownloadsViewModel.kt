@@ -7,6 +7,7 @@ import dev.jdtech.jellyfin.core.Constants
 import dev.jdtech.jellyfin.core.R as CoreR
 import dev.jdtech.jellyfin.film.presentation.collection.CollectionState
 import dev.jdtech.jellyfin.models.CollectionSection
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidMovie
 import dev.jdtech.jellyfin.models.FindroidShow
 import dev.jdtech.jellyfin.models.UiText
@@ -48,6 +49,16 @@ class DownloadsViewModel @Inject constructor(private val repository: JellyfinRep
                             Constants.FAVORITE_TYPE_SHOWS,
                             UiText.StringResource(CoreR.string.shows_label),
                             items.filterIsInstance<FindroidShow>(),
+                        )
+                        .let {
+                            if (it.items.isNotEmpty()) {
+                                sections.add(it)
+                            }
+                        }
+                    CollectionSection(
+                            Constants.FAVORITE_TYPE_BOOKS,
+                            UiText.StringResource(CoreR.string.books_label),
+                            items.filterIsInstance<FindroidBook>(),
                         )
                         .let {
                             if (it.items.isNotEmpty()) {

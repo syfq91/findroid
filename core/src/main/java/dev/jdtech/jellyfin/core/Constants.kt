@@ -12,4 +12,5 @@ object Constants {
     const val FAVORITE_TYPE_MOVIES = 0
     const val FAVORITE_TYPE_SHOWS = 1
     const val FAVORITE_TYPE_EPISODES = 2
+    const val FAVORITE_TYPE_BOOKS = 3
 }

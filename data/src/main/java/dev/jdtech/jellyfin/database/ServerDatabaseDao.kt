@@ -261,7 +261,7 @@ interface ServerDatabaseDao {
 
     @Query("SELECT * FROM books ORDER BY name ASC") suspend fun getBooks(): List<FindroidBookDto>
 
-    @Query("SELECT * FROM books WHERE serverId = :serverId ORDER BY name ASC")
+    @Query("SELECT * FROM books WHERE serverId = :serverId OR serverId IS NULL ORDER BY name ASC")
     suspend fun getBooksByServerId(serverId: String): List<FindroidBookDto>
 
     @Query("DELETE FROM books WHERE id = :id") suspend fun deleteBook(id: UUID)
