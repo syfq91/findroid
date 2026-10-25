@@ -77,13 +77,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    packaging {
-        jniLibs {
-            // libmpv and the libass bindings both bundle libc++_shared.so
-            pickFirsts += "**/libc++_shared.so"
-        }
-    }
-
     testOptions { unitTests.isIncludeAndroidResources = true }
 
     dependenciesInfo {

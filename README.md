@@ -36,7 +36,8 @@ I am developing this application in my spare time.
     - Support depends on Android device
   - Audio codecs: Vorbis, Opus, FLAC, ALAC, PCM, MP3, AAC, AC-3, E-AC-3, DTS, DTS-HD, TrueHD 
     - Support provided by ExoPlayer FFmpeg extension
-  - Subtitle codecs: SRT, VTT, SSA/ASS (with libass rendering support), PGSSUB
+  - Subtitle codecs: SRT, VTT, SSA/ASS, PGSSUB
+    - SSA/ASS has limited styling support see [this issue](https://github.com/google/ExoPlayer/issues/8435)
 - mpv
   - Container formats: mkv, mov, mp4, avi
   - Video codecs: H.264, H.265, H.266, VP8, VP9, AV1

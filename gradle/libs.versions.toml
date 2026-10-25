@@ -24,7 +24,6 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.11.0"
 ksp = "2.3.12"
 ktfmt = "0.27.0"
-libass-media = "0.5.1"
 libmpv = "1.0.0"
 material = "1.14.0"
 media3-ffmpeg-decoder = "1.9.0+1"
@@ -81,7 +80,6 @@ jellyfin-core = { group = "org.jellyfin.sdk", name = "jellyfin-core", version.re
 kotlin-metadata-jvm = { group = "org.jetbrains.kotlin", name = "kotlin-metadata-jvm", version.ref = "kotlin"}
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
-libass-media = { group = "io.github.peerless2012", name = "ass-media", version.ref = "libass-media" }
 libmpv = { group = "dev.jdtech.mpv", name = "libmpv", version.ref = "libmpv" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 media3-ffmpeg-decoder = { group = "org.jellyfin.media3", name = "media3-ffmpeg-decoder", version.ref = "media3-ffmpeg-decoder" }

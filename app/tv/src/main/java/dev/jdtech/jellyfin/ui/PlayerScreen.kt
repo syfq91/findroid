@@ -177,7 +177,6 @@ fun PlayerScreen(
                 PlayerView(context).also { playerView ->
                     playerView.player = viewModel.player
                     playerView.useController = false
-                    viewModel.attachSubtitleOverlay(playerView.subtitleView)
                     viewModel.initializePlayer(
                         itemId = itemId,
                         itemKind = itemKind,

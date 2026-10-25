@@ -629,12 +629,10 @@ class JellyfinRepositoryImpl(
                 else database.getMovies()
             items.addAll(movies.map { it.toFindroidMovie(database, userId) })
             val shows =
-                if (serverId != null) database.getShowsByServerId(serverId)
-                else database.getShows()
+                if (serverId != null) database.getShowsByServerId(serverId) else database.getShows()
             items.addAll(shows.map { it.toFindroidShow(database, userId) })
             val books =
-                if (serverId != null) database.getBooksByServerId(serverId)
-                else database.getBooks()
+                if (serverId != null) database.getBooksByServerId(serverId) else database.getBooks()
             items.addAll(books.map { it.toFindroidBook(database, userId) })
             items
         }

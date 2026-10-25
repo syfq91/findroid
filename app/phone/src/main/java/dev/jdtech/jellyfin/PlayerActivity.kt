@@ -99,7 +99,6 @@ class PlayerActivity : BasePlayerActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.playerView.player = viewModel.player
-        viewModel.attachSubtitleOverlay(binding.playerView.subtitleView)
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
                 if (visibility == View.GONE) {

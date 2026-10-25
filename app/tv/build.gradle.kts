@@ -67,13 +67,7 @@ android {
         compose = true
     }
 
-    packaging {
-        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
-        jniLibs {
-            // libmpv and the libass bindings both bundle libc++_shared.so
-            pickFirsts += "**/libc++_shared.so"
-        }
-    }
+    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 
     dependenciesInfo {
         // Disables dependency metadata when building APKs.
