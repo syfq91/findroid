@@ -1,5 +1,6 @@
 package dev.jdtech.jellyfin.presentation.film.components
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
@@ -22,11 +23,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.FindroidEpisode
 import dev.jdtech.jellyfin.models.FindroidItem
 import dev.jdtech.jellyfin.models.FindroidSeason
 import dev.jdtech.jellyfin.presentation.theme.spacings
 import dev.jdtech.jellyfin.presentation.utils.parallaxLayoutModifier
+import java.io.File
 
 @Composable
 fun ItemHeader(
@@ -36,20 +39,7 @@ fun ItemHeader(
     content: @Composable (BoxScope.() -> Unit) = {},
 ) {
     val context = LocalContext.current
-    var backdropUri =
-        when (item) {
-            is FindroidEpisode -> item.images.primary
-            else -> item.images.backdrop
-        }
-
-    // Ugly workaround to append the files directory when loading local images
-    if (backdropUri?.scheme == null) {
-        backdropUri =
-            Uri.Builder()
-                .appendEncodedPath("${context.filesDir}")
-                .appendEncodedPath(backdropUri?.path)
-                .build()
-    }
+    val backdropUri = resolveBackdropUri(context, item)
 
     ItemHeaderBase(
         item = item,
@@ -77,21 +67,7 @@ fun ItemHeader(
     content: @Composable (BoxScope.() -> Unit) = {},
 ) {
     val context = LocalContext.current
-    var backdropUri =
-        when (item) {
-            is FindroidEpisode -> item.images.primary
-            is FindroidSeason -> item.images.showBackdrop
-            else -> item.images.backdrop
-        }
-
-    // Ugly workaround to append the files directory when loading local images
-    if (backdropUri?.scheme == null) {
-        backdropUri =
-            Uri.Builder()
-                .appendEncodedPath("${context.filesDir}")
-                .appendEncodedPath(backdropUri?.path)
-                .build()
-    }
+    val backdropUri = resolveBackdropUri(context, item)
 
     ItemHeaderBase(
         item = item,
@@ -109,6 +85,48 @@ fun ItemHeader(
         },
         content = content,
     )
+}
+
+private fun resolveBackdropUri(context: Context, item: FindroidItem): Uri? {
+    var backdropUri =
+        when (item) {
+            is FindroidEpisode -> item.images.primary
+            is FindroidSeason ->
+                item.images.showBackdrop ?: item.images.backdrop ?: item.images.primary
+            is FindroidBook -> item.images.backdrop ?: item.images.primary
+            else -> item.images.backdrop ?: item.images.primary
+        }
+
+    // Ugly workaround to append the files directory when loading local images
+    if (backdropUri != null && backdropUri.scheme == null) {
+        val file = File(context.filesDir, backdropUri.path.orEmpty())
+        backdropUri =
+            if (
+                !file.exists() &&
+                    item.images.primary != null &&
+                    item.images.primary != backdropUri
+            ) {
+                val primaryPath = item.images.primary?.path.orEmpty()
+                val primaryFile = File(context.filesDir, primaryPath)
+                if (primaryFile.exists()) {
+                    Uri.Builder()
+                        .appendEncodedPath("${context.filesDir}")
+                        .appendEncodedPath(primaryPath)
+                        .build()
+                } else {
+                    Uri.Builder()
+                        .appendEncodedPath("${context.filesDir}")
+                        .appendEncodedPath(backdropUri.path)
+                        .build()
+                }
+            } else {
+                Uri.Builder()
+                    .appendEncodedPath("${context.filesDir}")
+                    .appendEncodedPath(backdropUri.path)
+                    .build()
+            }
+    }
+    return backdropUri
 }
 
 @Composable
