@@ -616,7 +616,7 @@ class BookReaderActivity : AppCompatActivity() {
                         .coerceIn(0, pub.readingOrder.lastIndex)
                 val link = pub.readingOrder[index]
                 return Locator(
-                    href = link.href,
+                    href = link.url(),
                     mediaType = link.mediaType ?: MediaType.BINARY,
                     locations =
                         Locator.Locations(
@@ -980,7 +980,7 @@ class BookReaderActivity : AppCompatActivity() {
                 val totalPages = pub.readingOrder.size
                 val pageIndex =
                     locator.locations.position?.let { it - 1 }
-                        ?: pub.readingOrder.indexOfFirstWithHref(locator.href).takeIf { it >= 0 }
+                        ?: pub.readingOrder.indexOfFirstWithHref(locator.href)?.takeIf { it >= 0 }
                         ?: if (totalPages > 0) {
                             ((locator.locations.totalProgression ?: 0.0) * totalPages).toInt()
                         } else {
