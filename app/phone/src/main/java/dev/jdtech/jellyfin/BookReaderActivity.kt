@@ -499,11 +499,13 @@ class BookReaderActivity : AppCompatActivity() {
             }
         this.publication = pub
         if (bookTitle.isBlank()) {
-            pub.metadata.title?.takeIf { it.isNotBlank() }?.let {
-                bookTitle = it
-                binding.textBookTitle.text = bookTitle
-                binding.statusTitle.text = bookTitle
-            }
+            pub.metadata.title
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    bookTitle = it
+                    binding.textBookTitle.text = bookTitle
+                    binding.statusTitle.text = bookTitle
+                }
         }
         updateBackgroundTheme()
         this.positionsByReadingOrder =
@@ -1107,28 +1109,42 @@ class BookReaderActivity : AppCompatActivity() {
             return currentPage to totalPages
         }
 
-        internal fun findTitleInToc(links: List<Link>, targetHref: Url): String? {
-            val targetNormalized = targetHref.removeFragment().removeQuery()
+        private fun findExactTitleInToc(links: List<Link>, targetHref: Url): String? {
             for (link in links) {
-                if (link.href == targetHref && !link.title.isNullOrBlank()) {
+                if (link.url() == targetHref && !link.title.isNullOrBlank()) {
                     return link.title!!.trim()
                 }
-            }
-            for (link in links) {
-                if (
-                    link.href.removeFragment().removeQuery() == targetNormalized &&
-                        !link.title.isNullOrBlank()
-                ) {
-                    return link.title!!.trim()
-                }
-            }
-            for (link in links) {
-                val childResult = findTitleInToc(link.children, targetHref)
+                val childResult = findExactTitleInToc(link.children, targetHref)
                 if (!childResult.isNullOrBlank()) {
                     return childResult
                 }
             }
             return null
+        }
+
+        private fun findNormalizedTitleInToc(links: List<Link>, targetNormalized: Url): String? {
+            for (link in links) {
+                if (
+                    link.url().removeFragment().removeQuery() == targetNormalized &&
+                        !link.title.isNullOrBlank()
+                ) {
+                    return link.title!!.trim()
+                }
+                val childResult = findNormalizedTitleInToc(link.children, targetNormalized)
+                if (!childResult.isNullOrBlank()) {
+                    return childResult
+                }
+            }
+            return null
+        }
+
+        internal fun findTitleInToc(links: List<Link>, targetHref: Url): String? {
+            val exactResult = findExactTitleInToc(links, targetHref)
+            if (!exactResult.isNullOrBlank()) {
+                return exactResult
+            }
+            val targetNormalized = targetHref.removeFragment().removeQuery()
+            return findNormalizedTitleInToc(links, targetNormalized)
         }
 
         internal fun resolveChapterTitle(
@@ -1149,10 +1165,9 @@ class BookReaderActivity : AppCompatActivity() {
                 }
 
                 val targetNormalized = locator.href.removeFragment().removeQuery()
-                val readingOrderItem =
-                    readingOrder.firstOrNull {
-                        it.href.removeFragment().removeQuery() == targetNormalized
-                    }
+                val readingOrderItem = readingOrder.firstOrNull {
+                    it.url().removeFragment().removeQuery() == targetNormalized
+                }
                 val readingOrderTitle = readingOrderItem?.title?.trim()
                 if (!readingOrderTitle.isNullOrEmpty()) {
                     return readingOrderTitle
