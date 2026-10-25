@@ -64,7 +64,8 @@ fun ItemCard(
                     modifier =
                         Modifier.align(Alignment.TopEnd).padding(MaterialTheme.spacings.small),
                 )
-                if (direction == Direction.HORIZONTAL) {
+                if (direction == Direction.HORIZONTAL && item.runtimeTicks > 0L && item.playbackPositionTicks > 0L) {
+                    val progress = (item.playbackPositionTicks.toFloat() / item.runtimeTicks.toFloat()).coerceIn(0f, 1f)
                     Column(
                         modifier =
                             Modifier.align(Alignment.BottomStart)
@@ -73,12 +74,7 @@ fun ItemCard(
                         Box(
                             modifier =
                                 Modifier.height(4.dp)
-                                    .width(
-                                        item.playbackPositionTicks
-                                            .div(item.runtimeTicks.toFloat())
-                                            .times(width - 16)
-                                            .dp
-                                    )
+                                    .width(progress.times(width - 16).dp)
                                     .clip(MaterialTheme.shapes.extraSmall)
                                     .background(MaterialTheme.colorScheme.primary)
                         )

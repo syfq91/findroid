@@ -250,4 +250,111 @@ class EpubProgressTest {
             )
         assertEquals("My Book", resolved)
     }
+
+    @Test
+    fun testCalculateTotalTicksForEpub() {
+        val defaultTicks =
+            BookReaderActivity.calculateTotalTicks(pub = null, serverRuntimeTicks = 0L)
+        assertEquals(BookReaderActivity.JELLYFIN_EPUB_TICKS_TOTAL, defaultTicks)
+        assertEquals(10_000_000L, defaultTicks)
+
+        val serverTicks =
+            BookReaderActivity.calculateTotalTicks(pub = null, serverRuntimeTicks = 10_000_000L)
+        assertEquals(10_000_000L, serverTicks)
+    }
+
+    @Test
+    fun testCalculateProgressTicksForEpub() {
+        val startLocator =
+            Locator(
+                href = Url("ch1.xhtml")!!,
+                mediaType = MediaType.XHTML,
+                locations = Locator.Locations(totalProgression = 0.0),
+            )
+        val (startTicks, startProg) =
+            BookReaderActivity.calculateProgressTicks(startLocator, pub = null)
+        assertEquals(0L, startTicks)
+        assertEquals(0.0, startProg, 0.0001)
+
+        val quarterLocator =
+            Locator(
+                href = Url("ch1.xhtml")!!,
+                mediaType = MediaType.XHTML,
+                locations = Locator.Locations(totalProgression = 0.25),
+            )
+        val (quarterTicks, quarterProg) =
+            BookReaderActivity.calculateProgressTicks(quarterLocator, pub = null)
+        assertEquals(2_500_000L, quarterTicks)
+        assertEquals(0.25, quarterProg, 0.0001)
+
+        val endLocator =
+            Locator(
+                href = Url("ch1.xhtml")!!,
+                mediaType = MediaType.XHTML,
+                locations = Locator.Locations(totalProgression = 1.0),
+            )
+        val (endTicks, endProg) =
+            BookReaderActivity.calculateProgressTicks(endLocator, pub = null)
+        assertEquals(10_000_000L, endTicks)
+        assertEquals(1.0, endProg, 0.0001)
+
+        val nullProgLocator =
+            Locator(
+                href = Url("ch1.xhtml")!!,
+                mediaType = MediaType.XHTML,
+                locations = Locator.Locations(),
+            )
+        val (nullTicks, nullProg) =
+            BookReaderActivity.calculateProgressTicks(nullProgLocator, pub = null)
+        assertEquals(0L, nullTicks)
+        assertEquals(0.0, nullProg, 0.0001)
+    }
+
+    @Test
+    fun testCalculateProgressionFromServerTicks() {
+        val totalTicks = BookReaderActivity.JELLYFIN_EPUB_TICKS_TOTAL
+
+        // Zero / negative server ticks
+        assertEquals(
+            0.0,
+            BookReaderActivity.calculateProgressionFromServerTicks(0L, totalTicks),
+            0.0001,
+        )
+        assertEquals(
+            0.0,
+            BookReaderActivity.calculateProgressionFromServerTicks(-100L, totalTicks),
+            0.0001,
+        )
+
+        // Standard Jellyfin server ticks (e.g. 25% = 2,500,000 ticks)
+        assertEquals(
+            0.25,
+            BookReaderActivity.calculateProgressionFromServerTicks(2_500_000L, totalTicks),
+            0.0001,
+        )
+        assertEquals(
+            1.0,
+            BookReaderActivity.calculateProgressionFromServerTicks(10_000_000L, totalTicks),
+            0.0001,
+        )
+
+        // Legacy virtual ticks from previous Findroid versions (1B scale)
+        assertEquals(
+            0.25,
+            BookReaderActivity.calculateProgressionFromServerTicks(250_000_000L, totalTicks),
+            0.0001,
+        )
+        assertEquals(
+            0.50,
+            BookReaderActivity.calculateProgressionFromServerTicks(500_000_000L, totalTicks),
+            0.0001,
+        )
+
+        // Server reports 0 total ticks
+        assertEquals(
+            0.0,
+            BookReaderActivity.calculateProgressionFromServerTicks(100L, 0L),
+            0.0001,
+        )
+    }
 }

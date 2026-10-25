@@ -689,4 +689,64 @@ class CbzTest {
         val chapter1Positions = positionsByReadingOrder[0]
         assertTrue(chapter1Positions.isNotEmpty())
     }
+
+    @Test
+    fun testCbzReadingProgressCalculation() = runBlocking {
+        val file =
+            createSampleCbz(
+                "three_page.cbz",
+                imageNames = listOf("p1.jpg", "p2.jpg", "p3.jpg"),
+            )
+        val context = RuntimeEnvironment.getApplication()
+        val httpClient = org.readium.r2.shared.util.http.DefaultHttpClient()
+        val assetRetriever = AssetRetriever(context.contentResolver, httpClient)
+        val hints = BookReaderActivity.buildFormatHints("cbz")
+        val asset =
+            assetRetriever.retrieve(file, hints).getOrElse {
+                fail("Failed to retrieve asset: $it")
+                throw IllegalStateException()
+            }
+        val streamer = PublicationOpener(ImageParser(assetRetriever = assetRetriever))
+        val pub =
+            streamer.open(asset, allowUserInteraction = false).getOrElse {
+                fail("Failed to open publication: $it")
+                throw IllegalStateException()
+            }
+        assertTrue(pub.conformsTo(Publication.Profile.DIVINA))
+        assertEquals(3, pub.readingOrder.size)
+
+        // Total ticks fallback to 3 * 10,000 = 30,000L
+        val totalTicks = BookReaderActivity.calculateTotalTicks(pub, serverRuntimeTicks = 0L)
+        assertEquals(30_000L, totalTicks)
+
+        val positions = pub.positions()
+        assertEquals(3, positions.size)
+
+        // Page 1 (index 0)
+        val (p1Ticks, p1Prog) = BookReaderActivity.calculateProgressTicks(positions[0], pub)
+        assertEquals(0L, p1Ticks)
+        assertEquals(0.0, p1Prog, 0.0001)
+
+        // Page 2 (index 1)
+        val (p2Ticks, p2Prog) = BookReaderActivity.calculateProgressTicks(positions[1], pub)
+        assertEquals(10_000L, p2Ticks)
+        assertEquals(1.0 / 3.0, p2Prog, 0.0001)
+
+        // Page 3 (index 2)
+        val (p3Ticks, p3Prog) = BookReaderActivity.calculateProgressTicks(positions[2], pub)
+        assertEquals(20_000L, p3Ticks)
+        assertEquals(2.0 / 3.0, p3Prog, 0.0001)
+
+        // Server tick restoration (normal Jellyfin tick for page 2)
+        val restoredProg =
+            BookReaderActivity.calculateProgressionFromServerTicks(10_000L, totalTicks)
+        assertEquals(1.0 / 3.0, restoredProg, 0.0001)
+
+        // Server tick restoration (legacy Findroid 1B virtual tick scale for page 2)
+        val legacyServerTicks =
+            ((1.0 / 3.0) * BookReaderActivity.LEGACY_VIRTUAL_TICKS_TOTAL).toLong()
+        val restoredLegacyProg =
+            BookReaderActivity.calculateProgressionFromServerTicks(legacyServerTicks, totalTicks)
+        assertEquals(1.0 / 3.0, restoredLegacyProg, 0.001)
+    }
 }

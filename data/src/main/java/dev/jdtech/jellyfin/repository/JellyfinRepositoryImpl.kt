@@ -458,15 +458,16 @@ class JellyfinRepositoryImpl(
         itemId: UUID,
         positionTicks: Long,
         playedPercentage: Int,
+        isBook: Boolean,
     ) {
         Timber.d("Sending stop $itemId")
         withContext(Dispatchers.IO) {
             when {
-                playedPercentage < 10 -> {
+                !isBook && playedPercentage < 10 -> {
                     database.setPlaybackPositionTicks(itemId, jellyfinApi.userId!!, 0)
                     database.setPlayed(jellyfinApi.userId!!, itemId, false)
                 }
-                playedPercentage > 90 -> {
+                playedPercentage >= (if (isBook) 100 else 90) -> {
                     database.setPlaybackPositionTicks(itemId, jellyfinApi.userId!!, 0)
                     database.setPlayed(jellyfinApi.userId!!, itemId, true)
                 }

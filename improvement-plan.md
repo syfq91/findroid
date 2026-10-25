@@ -124,13 +124,10 @@ val index = (positions.size * progression).toInt().coerceIn(0, positions.lastInd
 val locator = positions[index]
 ```
 
-The progression is not `playbackPositionTicks / runtimeTicks`. The reader posts
-`ticks = progression * VIRTUAL_TICKS_TOTAL` (`BookReaderActivity.kt:553`, with
-`VIRTUAL_TICKS_TOTAL = 1_000_000_000L`), so the inverse is
-`playbackPositionTicks / VIRTUAL_TICKS_TOTAL` — a synthetic scale that has nothing
-to do with the runtime Jellyfin reports for a book. `VIRTUAL_TICKS_TOTAL` is a
-private constant in the reader's companion object, so it needs to move somewhere
-both the reader and the resume path can see it.
+The progression uses Jellyfin's standard book scales:
+- EPUB: Jellyfin standardizes `RunTimeTicks = 10_000_000L` (1 second), so ticks = `progression * 10_000_000L`.
+- CBZ / CBR / PDF (Divina): Jellyfin standardizes `RunTimeTicks = pageCount * 10_000L` (10,000 ticks = 1 ms per page), so ticks = `pageIndex * 10_000L`.
+- If an older server record contains legacy virtual ticks on the `1_000_000_000L` synthetic scale, it falls back to `serverPositionTicks / 1_000_000_000L`.
 
 Keep the local locator authoritative when present — it is the more precise of the two.
 

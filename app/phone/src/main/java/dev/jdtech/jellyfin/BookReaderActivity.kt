@@ -103,6 +103,7 @@ class BookReaderActivity : AppCompatActivity() {
     private var epubChapterHref: Url? = null
     private var epubChapterPage: Int = 1
     private var epubChapterTotalPages: Int = 1
+    private var serverRuntimeTicks: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -363,6 +364,11 @@ class BookReaderActivity : AppCompatActivity() {
             try {
                 val prepared = prepareBookFile()
                 openPublication(prepared, savedInstanceState)
+                try {
+                    jellyfinRepository.postPlaybackStart(bookUUID)
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to post playback start")
+                }
                 binding.loadingLayout.isVisible = false
                 if (!binding.controlsOverlay.isVisible) {
                     binding.readerStatusBar.isVisible = true
@@ -385,9 +391,11 @@ class BookReaderActivity : AppCompatActivity() {
         withContext(Dispatchers.IO) {
             var container = intent.getStringExtra(EXTRA_BOOK_CONTAINER)
             var serverPositionTicks = 0L
+            var serverRuntimeTicks = 0L
             try {
                 val book = jellyfinRepository.getBook(bookUUID)
                 serverPositionTicks = book.playbackPositionTicks
+                serverRuntimeTicks = book.runtimeTicks
                 if (container.isNullOrBlank()) {
                     container = book.container
                 }
@@ -402,7 +410,12 @@ class BookReaderActivity : AppCompatActivity() {
                                 it in listOf("cbz", "cbr", "epub", "pdf")
                             } ?: detected
                         val hints = buildFormatHints(ext)
-                        return@withContext PreparedBook(localFile, serverPositionTicks, hints)
+                        return@withContext PreparedBook(
+                            file = localFile,
+                            serverPositionTicks = serverPositionTicks,
+                            serverRuntimeTicks = serverRuntimeTicks,
+                            formatHints = hints,
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -432,7 +445,12 @@ class BookReaderActivity : AppCompatActivity() {
                     }
                 val finalExt = resolvedFile.extension.lowercase().ifBlank { targetExt }
                 val hints = buildFormatHints(finalExt)
-                return@withContext PreparedBook(resolvedFile, serverPositionTicks, hints)
+                return@withContext PreparedBook(
+                    file = resolvedFile,
+                    serverPositionTicks = serverPositionTicks,
+                    serverRuntimeTicks = serverRuntimeTicks,
+                    formatHints = hints,
+                )
             }
 
             val tempFile = File(booksDir, "$bookId.tmp")
@@ -455,17 +473,26 @@ class BookReaderActivity : AppCompatActivity() {
             val targetFile = File(booksDir, "$bookId.$finalExt")
             val resolvedFile = safeMoveOrCopy(tempFile, targetFile)
             val hints = buildFormatHints(finalExt)
-            PreparedBook(resolvedFile, serverPositionTicks, hints)
+            PreparedBook(
+                file = resolvedFile,
+                serverPositionTicks = serverPositionTicks,
+                serverRuntimeTicks = serverRuntimeTicks,
+                formatHints = hints,
+            )
         }
 
-    /** The resolved book file plus the reading position the server has for it, in ticks. */
+    /**
+     * The resolved book file plus the reading position and runtime the server has for it, in ticks.
+     */
     private data class PreparedBook(
         val file: File,
         val serverPositionTicks: Long,
+        val serverRuntimeTicks: Long = 0L,
         val formatHints: FormatHints? = null,
     )
 
     private suspend fun openPublication(prepared: PreparedBook, savedInstanceState: Bundle?) {
+        this.serverRuntimeTicks = prepared.serverRuntimeTicks
         val httpClient = DefaultHttpClient()
         val assetRetriever = AssetRetriever(contentResolver, httpClient)
         val hints = prepared.formatHints ?: FormatHints()
@@ -560,11 +587,10 @@ class BookReaderActivity : AppCompatActivity() {
     /**
      * Derives a locator from the server's saved position.
      *
-     * The reader posts `ticks = progression * VIRTUAL_TICKS_TOTAL`, so the inverse is
-     * `playbackPositionTicks / VIRTUAL_TICKS_TOTAL` — a synthetic scale unrelated to the runtime
-     * Jellyfin reports for a book. Readium 3.4 has no `locatorFromProgression`, so map the
-     * progression onto the positions service the publication opener registered
-     * (EpubPositionsService for EPUB, PerResourcePositionsService for Divina).
+     * For EPUB, Jellyfin uses 10,000,000 ticks (1s) and position is proportion of that.
+     * For Divina (CBZ/CBR/PDF), Jellyfin uses pageCount * 10,000 ticks.
+     * If the server position exceeds runtime ticks but is within the legacy 1,000,000,000 scale,
+     * it falls back to the legacy scale.
      */
     private suspend fun locatorFromServerProgress(
         pub: Publication,
@@ -572,7 +598,8 @@ class BookReaderActivity : AppCompatActivity() {
     ): Locator? {
         if (serverPositionTicks <= 0L) return null
 
-        val progression = (serverPositionTicks.toDouble() / VIRTUAL_TICKS_TOTAL).coerceIn(0.0, 1.0)
+        val totalTicks = calculateTotalTicks(pub, serverRuntimeTicks)
+        val progression = calculateProgressionFromServerTicks(serverPositionTicks, totalTicks)
 
         val positions =
             try {
@@ -581,7 +608,26 @@ class BookReaderActivity : AppCompatActivity() {
                 Timber.w(e, "Could not read publication positions")
                 return null
             }
-        if (positions.isEmpty()) return null
+        if (positions.isEmpty()) {
+            if (pub.conformsTo(Publication.Profile.DIVINA) && pub.readingOrder.isNotEmpty()) {
+                val index =
+                    (pub.readingOrder.size * progression)
+                        .toInt()
+                        .coerceIn(0, pub.readingOrder.lastIndex)
+                val link = pub.readingOrder[index]
+                return Locator(
+                    href = link.href,
+                    mediaType = link.mediaType ?: MediaType.BINARY,
+                    locations =
+                        Locator.Locations(
+                            position = index + 1,
+                            totalProgression =
+                                (index.toDouble() / pub.readingOrder.size).coerceIn(0.0, 1.0),
+                        ),
+                )
+            }
+            return null
+        }
 
         val index = (positions.size * progression).toInt().coerceIn(0, positions.lastIndex)
         return positions[index]
@@ -752,7 +798,9 @@ class BookReaderActivity : AppCompatActivity() {
                     // per page turn (or per scroll step in continuous mode).
                     launch {
                         nav.currentLocator
-                            .distinctUntilChangedBy { it.locations.totalProgression }
+                            .distinctUntilChangedBy {
+                                calculateProgressTicks(it, publication, serverRuntimeTicks).first
+                            }
                             .debounce(PLAYBACK_PROGRESS_DEBOUNCE_MS)
                             .collect { locator -> postProgress(locator) }
                     }
@@ -814,8 +862,7 @@ class BookReaderActivity : AppCompatActivity() {
     }
 
     private suspend fun postProgress(locator: Locator) {
-        val progression = locator.locations.totalProgression ?: 0.0
-        val ticks = (progression * VIRTUAL_TICKS_TOTAL).toLong()
+        val (ticks, _) = calculateProgressTicks(locator, publication, serverRuntimeTicks)
         try {
             jellyfinRepository.postPlaybackProgress(bookUUID, ticks, isPaused = false)
         } catch (e: Exception) {
@@ -869,12 +916,16 @@ class BookReaderActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         navigator?.currentLocator?.value?.let { locator ->
-            val progression = locator.locations.totalProgression ?: 0.0
-            val ticks = (progression * VIRTUAL_TICKS_TOTAL).toLong()
-            val percent = (progression * 100).toInt()
+            val (ticks, progression) = calculateProgressTicks(locator, publication, serverRuntimeTicks)
+            val percent = (progression * 100).toInt().coerceIn(0, 100)
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    jellyfinRepository.postPlaybackStop(bookUUID, ticks, percent)
+                    jellyfinRepository.postPlaybackStop(
+                        itemId = bookUUID,
+                        positionTicks = ticks,
+                        playedPercentage = percent,
+                        isBook = true,
+                    )
                 } catch (e: Exception) {
                     Timber.w(e, "Failed to post playback stop")
                 }
@@ -897,7 +948,88 @@ class BookReaderActivity : AppCompatActivity() {
         const val EXTRA_BOOK_CONTAINER = "extra_book_container"
         private const val TAG_NAVIGATOR = "reader_navigator"
         private const val KEY_LOCATOR_PREFIX = "pref_book_locator_"
-        private const val VIRTUAL_TICKS_TOTAL = 1_000_000_000L
+        const val TICKS_PER_PAGE = 10_000L
+        const val JELLYFIN_EPUB_TICKS_TOTAL = 10_000_000L
+        const val LEGACY_VIRTUAL_TICKS_TOTAL = 1_000_000_000L
+
+        /**
+         * Calculates total ticks used for progress reporting and tracking.
+         * For EPUB, Jellyfin standardizes RunTimeTicks as 10,000,000L (1 second).
+         * For Divina (CBZ/CBR/PDF), Jellyfin standardizes RunTimeTicks as pageCount * 10,000L.
+         */
+        internal fun calculateTotalTicks(pub: Publication?, serverRuntimeTicks: Long = 0L): Long {
+            if (serverRuntimeTicks > 0L) {
+                return serverRuntimeTicks
+            }
+            if (pub?.conformsTo(Publication.Profile.DIVINA) == true && pub.readingOrder.isNotEmpty()) {
+                return pub.readingOrder.size * TICKS_PER_PAGE
+            }
+            return JELLYFIN_EPUB_TICKS_TOTAL
+        }
+
+        /**
+         * Calculates playback position ticks and normalized progression for a locator.
+         */
+        internal fun calculateProgressTicks(
+            locator: Locator,
+            pub: Publication?,
+            serverRuntimeTicks: Long = 0L,
+        ): Pair<Long, Double> {
+            val totalTicks = calculateTotalTicks(pub, serverRuntimeTicks)
+            if (pub?.conformsTo(Publication.Profile.DIVINA) == true) {
+                val totalPages = pub.readingOrder.size
+                val pageIndex =
+                    locator.locations.position?.let { it - 1 }
+                        ?: pub.readingOrder.indexOfFirstWithHref(locator.href).takeIf { it >= 0 }
+                        ?: if (totalPages > 0) {
+                            ((locator.locations.totalProgression ?: 0.0) * totalPages).toInt()
+                        } else {
+                            0
+                        }
+                val clampedIndex = if (totalPages > 0) pageIndex.coerceIn(0, totalPages - 1) else 0
+                val progression =
+                    if (totalPages > 0) {
+                        (clampedIndex.toDouble() / totalPages).coerceIn(0.0, 1.0)
+                    } else {
+                        0.0
+                    }
+                val ticks =
+                    if (totalTicks == totalPages * TICKS_PER_PAGE) {
+                        clampedIndex * TICKS_PER_PAGE
+                    } else if (totalPages > 0) {
+                        (progression * totalTicks).toLong()
+                    } else {
+                        0L
+                    }
+                return Pair(ticks.coerceIn(0L, totalTicks), progression)
+            } else {
+                val progression = (locator.locations.totalProgression ?: 0.0).coerceIn(0.0, 1.0)
+                val ticks = (progression * totalTicks).toLong().coerceIn(0L, totalTicks)
+                return Pair(ticks, progression)
+            }
+        }
+
+        /**
+         * Calculates a normalized progression (0.0 to 1.0) from the server's position ticks.
+         * Handles legacy virtual ticks (1,000,000,000L scale) gracefully if present on older records.
+         */
+        internal fun calculateProgressionFromServerTicks(
+            serverPositionTicks: Long,
+            totalTicks: Long,
+        ): Double {
+            if (serverPositionTicks <= 0L) return 0.0
+            return if (
+                serverPositionTicks > totalTicks &&
+                    totalTicks > 0L &&
+                    serverPositionTicks <= LEGACY_VIRTUAL_TICKS_TOTAL
+            ) {
+                (serverPositionTicks.toDouble() / LEGACY_VIRTUAL_TICKS_TOTAL).coerceIn(0.0, 1.0)
+            } else if (totalTicks > 0L) {
+                (serverPositionTicks.toDouble() / totalTicks).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+        }
 
         /**
          * How long to wait after the last locator change before reporting progress to the server.

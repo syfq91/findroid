@@ -124,6 +124,22 @@ suspend fun BaseItemDto.toFindroidBook(
             ?.mapNotNull { it.name }
             ?.ifEmpty { null } ?: artistItems?.mapNotNull { it.name } ?: emptyList()
 
+    val resolvedContainer =
+        container?.takeIf { it.isNotBlank() }
+            ?: mediaSources?.firstOrNull()?.container?.takeIf { it.isNotBlank() }
+            ?: mediaSources?.firstOrNull()?.path?.substringAfterLast('.', "")?.takeIf {
+                it.isNotBlank()
+            }
+            ?: path?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() }
+
+    val resolvedRuntimeTicks =
+        runTimeTicks?.takeIf { it > 0 }
+            ?: if (resolvedContainer?.equals("epub", ignoreCase = true) == true) {
+                10_000_000L
+            } else {
+                0L
+            }
+
     return FindroidBook(
         id = id,
         name = name.orEmpty(),
@@ -134,7 +150,7 @@ suspend fun BaseItemDto.toFindroidBook(
         favorite = userData?.isFavorite == true,
         canPlay = playAccess != PlayAccess.NONE,
         canDownload = canDownload == true,
-        runtimeTicks = runTimeTicks ?: 0,
+        runtimeTicks = resolvedRuntimeTicks,
         playbackPositionTicks = userData?.playbackPositionTicks ?: 0,
         seriesName = seriesName,
         seriesIndex = indexNumber,
@@ -142,13 +158,7 @@ suspend fun BaseItemDto.toFindroidBook(
         genres = genres ?: emptyList(),
         communityRating = communityRating,
         productionYear = productionYear,
-        container =
-            container?.takeIf { it.isNotBlank() }
-                ?: mediaSources?.firstOrNull()?.container?.takeIf { it.isNotBlank() }
-                ?: mediaSources?.firstOrNull()?.path?.substringAfterLast('.', "")?.takeIf {
-                    it.isNotBlank()
-                }
-                ?: path?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() },
+        container = resolvedContainer,
         size = mediaSources?.firstOrNull()?.size,
         images = toFindroidImages(jellyfinRepository),
     )
