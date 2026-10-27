@@ -108,6 +108,8 @@
     <string name="none">None</string>
     <string name="edit_file_title">Edit %1$s</string>
     <string name="pref_player_backend">Player backend</string>
+    <string name="pref_player_exo_libass">Advanced ASS/SSA subtitles (libass)</string>
+    <string name="pref_player_exo_libass_summary">Use libass for accurate SSA/ASS subtitle styling and animations with ExoPlayer</string>
     <string name="mpv_options">mpv options</string>
     <string name="advanced">Advanced</string>
     <string name="discard_changes_dialog_title">Discard changes?</string>

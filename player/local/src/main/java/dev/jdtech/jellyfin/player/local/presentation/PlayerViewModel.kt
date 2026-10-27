@@ -13,9 +13,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.SubtitleView
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.jdtech.jellyfin.models.FindroidSegment
 import dev.jdtech.jellyfin.models.FindroidSegmentType
@@ -28,6 +28,8 @@ import dev.jdtech.jellyfin.player.local.mpv.MPVPlayer
 import dev.jdtech.jellyfin.repository.JellyfinRepository
 import dev.jdtech.jellyfin.settings.domain.AppPreferences
 import dev.jdtech.jellyfin.settings.domain.Constants
+import io.github.peerless2012.ass.media.AssHandler
+import io.github.peerless2012.ass.media.kt.withAssSupport
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.ceil
@@ -56,6 +58,13 @@ constructor(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel(), Player.Listener {
     val player: Player
+
+    /**
+     * Handler for the libass subtitle renderer, or null when libass is not in use (mpv backend, or
+     * libass disabled). Kept private so the libass types do not leak past this module; the app
+     * layers attach the subtitle overlay through [attachSubtitleOverlay].
+     */
+    private var assHandler: AssHandler? = null
 
     private val _uiState =
         MutableStateFlow(
@@ -133,25 +142,22 @@ constructor(
         )
 
         val playerBackend = appPreferences.getValue(appPreferences.playerBackend)
+        val useExoLibass = appPreferences.getValue(appPreferences.playerExoLibass)
         player =
             when (playerBackend) {
                 "exoplayer" -> {
-                    val renderersFactory =
-                        DefaultRenderersFactory(application)
-                            .setExtensionRendererMode(
-                                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                            )
-                    ExoPlayer.Builder(application, renderersFactory)
-                        .setAudioAttributes(audioAttributes, true)
-                        .setTrackSelector(trackSelector)
-                        .setSeekBackIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekBackInc)
+                    val (exoPlayer, handler) =
+                        ExoPlayerFactory.create(
+                            context = application,
+                            useLibass = useExoLibass,
+                            audioAttributes = audioAttributes,
+                            trackSelector = trackSelector,
+                            seekBackMs = appPreferences.getValue(appPreferences.playerSeekBackInc),
+                            seekForwardMs =
+                                appPreferences.getValue(appPreferences.playerSeekForwardInc),
                         )
-                        .setSeekForwardIncrementMs(
-                            appPreferences.getValue(appPreferences.playerSeekForwardInc)
-                        )
-                        .setPauseAtEndOfMediaItems(true)
-                        .build()
+                    assHandler = handler
+                    exoPlayer
                 }
                 "mpv" -> {
                     MPVPlayer.Builder(application)
@@ -222,6 +228,18 @@ constructor(
         }
     }
 
+    /**
+     * Attaches the libass subtitle overlay to the player's [SubtitleView].
+     *
+     * This keeps the libass types inside `player/local`: the app modules pass their `SubtitleView`
+     * and never name an `io.github.peerless2012.*` type themselves. Does nothing when libass is not
+     * in use (mpv backend, or the libass preference disabled).
+     */
+    fun attachSubtitleOverlay(subtitleView: SubtitleView?) {
+        val handler = assHandler ?: return
+        subtitleView?.withAssSupport(handler)
+    }
+
     private fun PlayerItem.toMediaItem(): MediaItem {
         val streamUrl = mediaSourceUri
         val mediaSubtitles = externalSubtitles.map { externalSubtitle ->
@@ -271,6 +289,8 @@ constructor(
         playWhenReady = false
         playbackPosition = 0L
         currentMediaItemIndex = 0
+        assHandler?.release()
+        assHandler = null
         player.removeListener(this)
         player.release()
     }

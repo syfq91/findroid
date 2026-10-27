@@ -1,10 +1,9 @@
 # Findroid fork — improvement plan
 
-Scope: the fork additions on top of upstream
+Scope: the six non-merge commits this fork adds on top of upstream
 [`jarnedemeulemeester/findroid`](https://github.com/jarnedemeulemeester/findroid) `main`
-— primarily the EPUB reader — plus the shared upstream
-code those commits touch. (Note: the fork addition of libass/ExoPlayer subtitle
-rendering has been removed).
+— the libass/ExoPlayer subtitle work and the EPUB reader — plus the shared upstream
+code those commits touch.
 
 ## Baseline
 
@@ -28,13 +27,13 @@ limited styling support", pointing at ExoPlayer#8435 (upstream `README.md:40`).
 
 | Area | Upstream | Fork | Verdict |
 |---|---|---|---|
-| libass in ExoPlayer | stock renderers, no custom media source factory | Removed (restored to upstream stock renderers) | removed |
+| libass in ExoPlayer | stock renderers, no custom media source factory | `ass-media` 0.5.1, verified against the library's own recipe | correct, keep |
 | Book model / storage | absent | `FindroidBook`, `books` table, Room 8→9 auto-migration | correct, keep |
 | Book navigation | absent | phone only | gap on TV |
 | Offline `getItem()` | returns `null` | nested try/catch over movie → episode → book | unintended behaviour change |
 | Download URL | no such API | `?api_key=<token>` | works, leaks token in URL |
 | `DownloaderImpl` | polymorphic `when (item)` | 7 extra `is FindroidBook` checks | diverges from upstream shape |
-| Settings | — | `pref_player_exo_libass` removed | removed |
+| Settings | — | `pref_player_exo_libass`, default `true` | visible to mpv users |
 
 ---
 
@@ -200,13 +199,56 @@ layer, `PlayerViewModel`). Every extra conditional in those files is a future me
 conflict, so these items are about keeping the fork's diff small and its shape
 recognisable.
 
-### P1-1 Keep the libass types inside `player/local` (Removed)
+### P1-1 Keep the libass types inside `player/local`
 
-*Resolved*: The fork addition of libass has been completely removed from the project, restoring upstream ExoPlayer defaults.
+**Problem.** `player/local/build.gradle.kts` exposes `api(libs.libass.media)`, so
+`app/phone/PlayerActivity.kt:104` and `app/tv/PlayerScreen.kt:182` import
+`io.github.peerless2012.ass.media.kt.withAssSupport` — a top-level extension on
+`SubtitleView` — and both apps must name an `androidx.media3.ui` type to call it.
 
-### P1-2 Extract the player construction from `PlayerViewModel.init` (Removed)
+**Proposal.** Move the call behind the module boundary:
 
-*Resolved*: Removed along with the libass removal; upstream ExoPlayer builder restored.
+```kotlin
+// player/local/.../PlayerViewModel.kt
+fun attachSubtitleOverlay(subtitleView: SubtitleView?) {
+    val handler = assHandler ?: return
+    subtitleView?.withAssSupport(handler)
+}
+```
+
+`player/local` already depends on `androidx.media3.ui`, so it can name
+`SubtitleView` itself. It can then use `implementation(libs.libass.media)` instead
+of `api(...)`, and the app modules drop the libass import and the direct
+`withAssSupport` call — they pass `binding.playerView.subtitleView` and nothing
+else.
+
+**Risk.** None. The library's own helper `buildWithAssSupport` applies the overlay
+the same way; only the call site moves.
+
+**Done when.** `grep -r "peerless2012" app/` returns nothing.
+
+### P1-2 Extract the player construction from `PlayerViewModel.init`
+
+**Problem.** `PlayerViewModel.kt:148-213` is now a 65-line `when` that builds the
+ExoPlayer, and the libass branch mutates the builder across ~25 lines before
+building. The ViewModel is the wrong place for that much construction logic.
+
+**Proposal.** Extract it:
+
+```kotlin
+internal object ExoPlayerFactory {
+    fun create(
+        context: Context,
+        useLibass: Boolean,
+        audioAttributes: AudioAttributes,
+        trackSelector: TrackSelector,
+        seekBackMs: Long,
+        seekForwardMs: Long,
+    ): Pair<ExoPlayer, AssHandler?>
+}
+```
+
+The ViewModel then reads `val (player, handler) = ExoPlayerFactory.create(...)`.
 
 **Risk.** Low. Behaviour is identical — the current wiring already matches the
 library's `buildWithAssSupport` recipe exactly (verified in
@@ -314,9 +356,37 @@ extraction is mechanical.
 
 ## P2 — Polish
 
-### P2-1 The libass toggle is shown to mpv users, and defaults to on (Removed)
+### P2-1 The libass toggle is shown to mpv users, and defaults to on
 
-*Resolved*: Removed along with the libass preference and strings.
+`SettingsViewModel.kt:257-264` places `pref_player_exo_libass` right after the
+backend selector with no condition, so mpv users see a switch that does nothing.
+The settings model has no display condition today: `Preference` carries
+`dependencies: List<PreferenceBackend<Boolean>>`
+(`settings/.../models/Preference.kt:11`), which the ViewModel evaluates into an
+`enabled` flag (`SettingsViewModel.kt:842`) — but that only greys a row out, and
+it only works for boolean preferences. `playerBackend` is a string preference
+(`AppPreferences.kt:29`), so it cannot express "only when the backend is
+ExoPlayer".
+
+Add a value-based condition, then apply it to the switch:
+
+```kotlin
+data class PreferenceSwitch(
+    …,
+    val visibleForBackendValues: Set<String>? = null,
+)
+```
+
+The switch should be hidden when the backend is `mpv`; a disabled-but-visible row
+would still be confusing next to a backend selector that changes nothing about it.
+
+Separately, `AppPreferences.kt:31` defaults the preference to `true`, which turns
+libass on for every ExoPlayer user. The cost is low — `AssHandler` loads libass
+lazily, "to avoid loading libass if the played media does not have ASS tracks"
+(`ass-media` 0.5.1, `AssHandler.kt:36-38`) — but a default-on change to the
+rendering path deserves an explicit mention. The fork's README already advertises
+"SSA/ASS (with libass rendering support)" (`README.md:39`); that line should say
+that it is on by default and how to turn it off.
 
 ### P2-2 Book size is always zero
 
@@ -383,7 +453,13 @@ What was checked, and how:
   to this fork's branch point, so `git diff f7d090f7..HEAD` is the complete fork
   delta. Upstream has no book code (`grep -ril book` matches only
   `data/.../CollectionType.kt`) and no libass in the player.
-- **libass integration.** (Removed from fork). Upstream stock ExoPlayer and mpv are used.
+- **libass integration.** `io.github.peerless2012:ass-media:0.5.1` and its transitive
+  `ass-kt:0.5.1` were downloaded from Maven Central and their sources inspected.
+  `AssSubtitleParserFactory.create()` delegates to `DefaultSubtitleParserFactory` for
+  every format except `TEXT_SSA`, so SRT/VTT subtitles keep working with libass
+  enabled — no regression. `ass-kt` ships `libass.so`, `libasskt.so` and
+  `libc++_shared.so` for all four ABIs, which is why the `pickFirsts` entries in both
+  app build files are needed.
 - **Download URL.** `org.jellyfin.sdk:jellyfin-api-jvm:1.9.2` sources were inspected:
   `LibraryApi.getDownloadUrl()` builds the URL with empty query parameters and no
   token, `LibraryApi.getDownload()` returns `Response<ByteArray>`, and no `api_key`

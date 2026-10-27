@@ -281,6 +281,14 @@ class SettingsViewModel @Inject constructor(private val appPreferences: AppPrefe
                                                     options = R.array.player_backends,
                                                     optionValues = R.array.player_backends,
                                                 ),
+                                                PreferenceSwitch(
+                                                    nameStringResource =
+                                                        R.string.pref_player_exo_libass,
+                                                    descriptionStringRes =
+                                                        R.string.pref_player_exo_libass_summary,
+                                                    backendPreference =
+                                                        appPreferences.playerExoLibass,
+                                                ),
                                                 PreferenceCategory(
                                                     nameStringResource = R.string.mpv_options,
                                                     onClick = {
