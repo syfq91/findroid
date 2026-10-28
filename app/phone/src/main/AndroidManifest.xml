@@ -35,7 +35,7 @@
         <activity
             android:name=".BookReaderActivity"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|uiMode|keyboard|keyboardHidden|navigation"
-            android:theme="@style/Theme.Findroid" />
+            android:theme="@style/Theme.Findroid.Reader" />
 
         <activity
             android:name=".MainActivity"

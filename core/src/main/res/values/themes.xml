@@ -5,6 +5,11 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
 
+    <!-- Reader theme: the page is drawn edge-to-edge behind a transparent status bar -->
+    <style name="Theme.Findroid.Reader" parent="Theme.Findroid">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
     <!-- Base application theme. -->
     <style name="Theme.Findroid" parent="Base.Theme.Findroid" />
 

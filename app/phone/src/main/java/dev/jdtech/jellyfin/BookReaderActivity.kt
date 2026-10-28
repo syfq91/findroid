@@ -178,6 +178,19 @@ class BookReaderActivity : AppCompatActivity() {
         } else {
             controller.hide(WindowInsetsCompat.Type.systemBars())
         }
+        applyStatusBarIconAppearance()
+    }
+
+    /**
+     * The status bar sits over the reader page, or over the dark controls bar while controls are
+     * shown, so its icon contrast must follow the reader theme instead of the app theme.
+     */
+    private fun applyStatusBarIconAppearance() {
+        val useLightIcons =
+            binding.controlsOverlay.isVisible ||
+                appPreferences.getValue(appPreferences.readerTheme) == "dark"
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars =
+            useLightIcons
     }
 
     private fun isReadingProgressionRTL(pub: Publication? = publication): Boolean {
@@ -217,6 +230,7 @@ class BookReaderActivity : AppCompatActivity() {
                 else -> Color.parseColor("#121212")
             }
         binding.readerRoot.setBackgroundColor(color)
+        applyStatusBarIconAppearance()
 
         val isDivina = publication?.conformsTo(Publication.Profile.DIVINA) == true
         if (isDivina) {
