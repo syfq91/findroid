@@ -1,374 +1,304 @@
 # Findroid fork — improvement plan
 
-Scope: the six non-merge commits this fork adds on top of upstream
-[`jarnedemeulemeester/findroid`](https://github.com/jarnedemeulemeester/findroid) `main`
-— the libass/ExoPlayer subtitle work and the EPUB reader — plus the shared upstream
-code those commits touch.
+Status review, 2026-10-29. The original plan was written against a fork of six
+commits on top of upstream `f7d090f7`; the fork has since merged upstream and added
+the EPUB/CBZ reader, Divina support and the libass rework. Most of the original plan
+has landed. This revision records what is closed, what is still open, and what the
+newer code has exposed.
+
+Scope is the fork's delta against upstream
+[`jarnedemeulemeester/findroid`](https://github.com/jarnedemeulemeester/findroid)
+`main`, plus the shared upstream code that delta touches.
 
 ## Baseline
 
 | Fact | Value |
 |---|---|
-| Upstream `main` | `f7d090f7` — identical to this fork's branch point |
-| Fork delta | `git diff f7d090f7..HEAD` → 42 files, +3239 / −41 |
-| Fork commits | `9dbd0227` libass, `2bb2dee3` EPUB, `325e5022` reader prefs, `0d7fb6e6` comics/manga, `90e45a78` offline books, `c3125096` build fixes |
-| Upstream equivalents | none — upstream has no book/EPUB code and no libass in ExoPlayer |
+| Fork HEAD | `871388ce` (`main`) |
+| Upstream `main` merged into the fork | `a451220b` (merge commit `80113009`) |
+| Fork delta | `git diff a451220b..HEAD` → 66 files, +6261 / −302 |
+| Fork commits since that upstream tip | 35 non-merge commits |
+| Previous delta (original plan) | `f7d090f7..HEAD` → 42 files, +3239 / −41 |
+| Upstream equivalents | still none for the book reader or libass in ExoPlayer |
 
-The two headline features do not exist upstream, so there is no reference
+`f7d090f7` is an ancestor of `a451220b`, so the delta has grown in both directions:
+upstream moved forward, and the fork added the reader work on top of the merge.
+The two headline features do not exist upstream, so there is still no reference
 implementation to align with. Upstream only matters for the shared code the fork
 edits: `DownloaderImpl`, `JellyfinRepository{,Impl,OfflineImpl}`,
 `ServerDatabase{,Dao}`, `Converters`, `FindroidItem`, `CollectionType`,
 `PlayerViewModel`, `PlayerActivity`, `PlayerScreen`, `AppPreferences`.
 
-Upstream's README names the gap the fork's libass work addresses: "SSA/ASS has
-limited styling support", pointing at ExoPlayer#8435 (upstream `README.md:40`).
+## Status at a glance
 
-## Summary of findings
-
-| Area | Upstream | Fork | Verdict |
+| ID | Item | Status | Evidence |
 |---|---|---|---|
-| libass in ExoPlayer | stock renderers, no custom media source factory | `ass-media` 0.5.1, verified against the library's own recipe | correct, keep |
-| Book model / storage | absent | `FindroidBook`, `books` table, Room 8→9 auto-migration | correct, keep |
-| Book navigation | absent | phone only | gap on TV |
-| Offline `getItem()` | returns `null` | nested try/catch over movie → episode → book | unintended behaviour change |
-| Download URL | no such API | `?api_key=<token>` | works, leaks token in URL |
-| `DownloaderImpl` | polymorphic `when (item)` | 7 extra `is FindroidBook` checks | diverges from upstream shape |
-| Settings | — | `pref_player_exo_libass`, default `true` | visible to mpv users |
+| P0-1 | Capability gate so shared code stops emitting books to TV | **Done** | `ItemCapabilities.kt`; phone `true` / TV `false`; `57325f5d` |
+| P0-2 | Debounce reader progress sync | **Done** | `BookReaderActivity.kt:813-824`, 5 s debounce; `7e165dc5` |
+| P0-3 | Resume from the server position | **Done** | `restoreLocator()` `:580-598`; `a9ceebcc` |
+| P0-4 | Close the publication after view teardown | **Done** | `onDestroy()` `:950-957`; `fe6efa06` |
+| P0-5 | Keep the access token out of reader URLs | **Partial** | reader streams via `openDownloadStream()` `:473`; `getDownloadUrl()` still appends `?api_key=` → see below |
+| P0-6 | TV still lists an empty "Books" library tile | **Open** | `MediaViewModel.kt:21`; `MediaScreen.kt:75` |
+| P1-1 | Keep libass types inside `player/local` | **Done** | `implementation(libs.libass.media)`; `attachSubtitleOverlay()` `PlayerViewModel.kt:238`; `cc56e4b6` |
+| P1-2 | Extract player construction | **Done** | `player/local/.../ExoPlayerFactory.kt`; `94ebb5f5` |
+| P1-3 | Polymorphic downloads | **Done** | `data/.../DownloadableItem.kt`; no `is FindroidBook` in `DownloaderImpl`; `9f590968` |
+| P1-4 | Nullable offline item lookup | **Done (narrowed)** | `findBook()` only; `getItem()` resolves books only; `9dc9c102` |
+| P1-5 | Share the item action bar | **Done** | `presentation/components/{ItemButtons,DownloadControls}.kt`; `BookButtonsBar` is 100 lines; `46ddf838` |
+| P1-6 | `DownloadReceiver` scans every table to find one item | **Open** | `DownloadReceiver.kt:76-97` |
+| P2-1 | libass switch is visible to mpv users and defaults on | **Open** | `SettingsViewModel.kt:284-291`; `AppPreferences.kt:31` |
+| P2-2 | Book size is always zero | **Open (low)** | `FindroidBook.kt:112,162`; guard at `DownloaderImpl.kt:86` |
+| P2-3 | Reader cache is unbounded and never revalidated | **Open** | `BookReaderActivity.kt:439-468` |
+| P2-4 | First unit tests | **Done** | `EpubProgressTest.kt` (15), `CbzTest.kt` (15) |
+| P2-5 | Local reading position is not scoped to the user | **Open** | `BookReaderActivity.kt:582,874,964` |
+| P2-6 | `BookReaderActivity` is 1326 lines | **Open** | `wc -l` |
+| P2-7 | `ktfmtCheck` may reject fork-added lines (unverified) | **Open** | `build.gradle.kts:21-27`; `.github/workflows/format.yaml` |
 
 ---
 
-## P0 — Functional gaps
+## Closed since the plan
 
-### P0-1 Books are inert rows on the TV app
+Kept here because the design decisions still explain the code. Each item was
+verified in the tree, not just by commit message.
 
-**Problem.** `modes/film` is shared by both apps, and the fork made it emit books:
-`LibraryViewModel.kt:46` maps `CollectionType.Books` to `BaseItemKind.BOOK` and
-`:53` adds `BaseItemKind.BOOK` to the Mixed/Folders list, and
-`CollectionType.supported` (`data/.../CollectionType.kt:19`) now contains `Books`,
-which also creates a "Books" home row through `HomeViewModel.kt:129-146` and
-un-hides book collections in `FindroidCollection.kt:28`.
+### P0-1 Capability gate (`57325f5d`)
 
-The TV app's click handlers have no book branch —
-`app/tv/.../presentation/film/LibraryScreen.kt:83` and `HomeScreen.kt:54` match only
-`FindroidMovie`, `FindroidShow`, `FindroidEpisode`. A book therefore renders as a
-card and does nothing when selected. The phone app routes correctly via
-`NavigationRoot.kt:552 → BookRoute`.
+`core/.../capability/ItemCapabilities.kt` declares `supportsBooks`; the Hilt modules
+set `true` for phone and `false` for TV (`app/*/.../di/AppModule.kt`). The shared
+module now asks the host instead of assuming:
 
-**Proposal.** Introduce a per-app capability so the shared module can ask what the
-host app supports:
+- `LibraryViewModel.kt:47-50` returns an empty flow for a `Books` library when
+  unsupported, and `:65` omits `BaseItemKind.BOOK` from the Mixed/Folders list.
+- `HomeViewModel.kt:103` filters books out of resume items and `:148` skips book
+  collections.
 
-```kotlin
-// core/.../presentation/capability/ItemCapabilities.kt
-interface ItemCapabilities {
-    val supportsBooks: Boolean
-}
-```
+This is the right shape: `modes/film` stays app-agnostic and the host declares what
+it can open. The residual gap is the library *tile* — see P0-6.
 
-- `app/phone` Hilt module → `supportsBooks = true`
-- `app/tv` Hilt module → `supportsBooks = false`
+### P0-2 Progress debounce (`7e165dc5`)
 
-Then in `modes/film/.../LibraryViewModel.kt` omit `BaseItemKind.BOOK` from the
-Mixed/Folders list when unsupported, and in `HomeViewModel.loadViews()` filter out
-`CollectionType.Books`.
+`observeNavigator()` (`:802-824`) runs two collectors under `repeatOnLifecycle`:
+the local locator write stays immediate (it powers instant resume), and the server
+sync is `distinctUntilChangedBy { calculateProgressTicks(...).first }` +
+`debounce(PLAYBACK_PROGRESS_DEBOUNCE_MS)` where the constant is `5_000L`
+(`:1053`). The activity opts in with `@OptIn(ExperimentalReadiumApi::class,
+FlowPreview::class)`.
 
-**Risk.** Low. The alternative — implementing a TV reader — is a separate feature,
-not a fix for a dead row.
+`distinctUntilChangedBy` keying on ticks (not raw progression) is the better choice:
+identical progress from different locators does not re-arm the timer.
 
-**Done when.** No book card appears in the TV library or home rows, and the phone
-behaviour is unchanged.
+### P0-3 Server-side resume (`a9ceebcc`)
 
-### P0-2 The reader reports playback progress on every page turn
+`prepareBookFile()` carries `serverPositionTicks`/`serverRuntimeTicks` into
+`PreparedBook` (`:404-496`, `:501-503`). `restoreLocator()` (`:580-598`) prefers the
+local locator and otherwise uses `publication.positions()`, with
+`calculateProgressionFromServerTicks()` (`:1030-1038`) handling legacy
+`1_000_000_000L` virtual ticks. That matches the two Jellyfin scales (EPUB
+`10_000_000L`, Divina `pageCount * 10_000L`).
 
-**Problem.** `BookReaderActivity.kt:537-559` posts `postPlaybackProgress` from
-`onLocatorChanged`, which fires on every locator change — every page turn, and on
-every scroll step in continuous mode. There is no debounce, so a long read
-generates a request per page.
+### P0-4 Publication close timing (`fe6efa06`)
 
-**Proposal.** Keep the local write immediate (it powers instant resume) and debounce
-only the network call:
+`onDestroy()` (`:950-957`) cancels `locatorJob` and posts `publication?.close()` on
+`binding.fragmentContainer`, so the navigator's coroutines finish before the
+publication goes away.
 
-```kotlin
-nav.currentLocator
-    .distinctUntilChangedBy { it.locations.totalProgression }
-    .debounce(5_000)
-    .collect { locator -> postProgress(locator) }
-```
+### P1-1 libass stays inside `player/local` (`cc56e4b6`)
 
-`debounce` comes from `kotlinx.coroutines.flow` and is still a `@FlowPreview` API in
-kotlinx-coroutines 1.11.0, so the call site needs `@OptIn(FlowPreview::class)`;
-`distinctUntilChangedBy` is stable and prevents a burst of identical positions from
-re-arming the timer.
+`player/local/build.gradle.kts:32` uses `implementation(libs.libass.media)`, and
+`grep -r peerless2012 app/` returns nothing. Both apps call
+`viewModel.attachSubtitleOverlay(playerView.subtitleView)`
+(`PlayerActivity.kt:102`, `app/tv/.../PlayerScreen.kt:180`); the extension on
+`SubtitleView` lives only in `PlayerViewModel.kt:238`.
 
-**Risk.** Low. If progress must survive a crash, keep writing the local locator on
-every change and debounce only the server call.
+### P1-2 `ExoPlayerFactory` (`94ebb5f5`)
 
-**Done when.** Reading a chapter produces a handful of requests instead of one per
-page, and the server still shows the final position after the reader closes.
+`internal object ExoPlayerFactory` with `create(...)` now owns the builder wiring
+that used to sit in `PlayerViewModel.init`.
 
-### P0-3 Reading position is restored only from local storage
+### P1-3 Polymorphic downloads (`9f590968`)
 
-**Problem.** The reader restores from `SharedPreferences` (`KEY_LOCATOR_PREFIX`,
-`BookReaderActivity.kt:404-413`). The fork already maps the server-side position
-into the model (`FindroidBook.playbackPositionTicks`,
-`data/.../FindroidBook.kt:87`), so a book read on another device opens at the start.
+`data/.../models/DownloadableItem.kt` defines `hasVideoExtras`,
+`resolveDownloadSource(...)` and `persistDownloadMetadata(database, repository,
+serverId)`; `FindroidMovie`, `FindroidEpisode` and `FindroidBook` implement it.
+`grep "is FindroidBook" DownloaderImpl.kt` returns nothing.
 
-**Proposal.** When no local locator exists, derive one from the server position.
-Readium 3.4 has no `locatorFromProgression`; use the positions service that
-`PublicationOpener` registers for EPUB (`EpubPositionsService`) and Divina
-(`PerResourcePositionsService`):
+### P1-4 Nullable offline lookup (`9dc9c102`)
 
-```kotlin
-val positions = publication.positions()          // suspend, PositionsService
-val index = (positions.size * progression).toInt().coerceIn(0, positions.lastIndex)
-val locator = positions[index]
-```
+`ServerDatabaseDao.findBook(id)` (`:260`) is the nullable counterpart of
+`getBook(id)`. `JellyfinRepositoryOfflineImpl.getItem()` now resolves books only and
+returns `null` for everything else, restoring upstream's behaviour for
+`ImagesDownloaderWorker`. `findMovie`/`findEpisode` were deliberately not added —
+see P1-6, where they are needed for a different caller.
 
-The progression uses Jellyfin's standard book scales:
-- EPUB: Jellyfin standardizes `RunTimeTicks = 10_000_000L` (1 second), so ticks = `progression * 10_000_000L`.
-- CBZ / CBR / PDF (Divina): Jellyfin standardizes `RunTimeTicks = pageCount * 10_000L` (10,000 ticks = 1 ms per page), so ticks = `pageIndex * 10_000L`.
-- If an older server record contains legacy virtual ticks on the `1_000_000_000L` synthetic scale, it falls back to `serverPositionTicks / 1_000_000_000L`.
+The plan's original proposal (add all three `find*` queries and resolve movies,
+episodes and books) was not taken because that would have kept the fork-only
+movie/episode image-download behaviour. Books-only is the narrower correct fix.
 
-Keep the local locator authoritative when present — it is the more precise of the two.
+### P1-5 Shared action bar (`46ddf838`)
 
-**Risk.** Low. The derived progression is exact for positions written by this
-reader, and approximate for positions written by another client that uses real
-runtime ticks; that is acceptable for a resume position.
+`app/phone/.../presentation/components/ItemButtons.kt` (`MarkPlayedButton`,
+`FavoriteButton`) and `DownloadControls.kt`
+(`rememberDownloadControlsState`, `DownloadButton`, `DownloadProgress`,
+`DownloadDialogs`) are shared with the book screen. `BookButtonsBar.kt` dropped
+from 209 to 100 lines.
 
-**Done when.** Opening a book that was read elsewhere resumes near the previous
-position.
+### P2-4 First unit tests
 
-### P0-4 The publication is closed while the navigator may still use it
+Two JVM test classes exist, both in `app/phone/src/test/java/dev/jdtech/jellyfin/`:
 
-**Problem.** `BookReaderActivity.onDestroy()` (`:620-624`) calls `super.onDestroy()`
-and then `publication?.close()`. Fragment teardown happens inside
-`super.onDestroy()`, but Readium's navigator runs coroutines that can still touch the
-publication while it is being closed.
+- `EpubProgressTest.kt` — 15 tests over the companion progress helpers:
+  paginated vs continuous mode, URL normalization with fragment/query,
+  `positions()` fallback when a chapter is not cached, chapter title resolution
+  (locator title, TOC, nested TOC, reading order, book-title fallback).
+- `CbzTest.kt` — 15 tests over format detection (mimetype, `ComicInfo.xml`,
+  Shift-JIS names, image extensions, real EPUB fallback), format hints,
+  `safeMoveOrCopy`, and opening CBZ/EPUB through Readium, including reopening with
+  a saved locator and self-healing a misnamed cached file.
 
-**Proposal.** Close after the container view is detached:
-
-```kotlin
-override fun onDestroy() {
-    super.onDestroy()
-    locatorJob?.cancel()
-    binding.fragmentContainer.post { publication?.close() }
-}
-```
-
-**Risk.** Low, but the failure mode is a crash in a background coroutine, which is
-hard to reproduce — worth fixing rather than monitoring.
-
-**Done when.** Rotating the device and leaving the reader repeatedly produces no
-crash in the logcat.
-
-### P0-5 The access token is embedded in the reader's download URL
-
-**Problem.** `JellyfinRepositoryImpl.getDownloadUrl()` (`:551-556`) builds
-`"$baseUrl/Items/$itemId/Download?api_key=$token"`. The reader fetches the file
-with `HttpURLConnection` (`BookReaderActivity.kt:357-370`), so the token ends up in
-a URL that can reach logs and error messages. The token must be in the URL for
-`DownloadManager` (it cannot send headers), so the URL form is required — but not
-for the reader.
-
-**Proposal.** Split the two consumers:
-
-```kotlin
-// JellyfinRepository
-fun getDownloadUrl(itemId: UUID): String            // ?api_key=… — DownloadManager
-suspend fun openDownloadStream(itemId: UUID): InputStream  // Authorization header
-```
-
-`DownloadManager` keeps using the URL; the reader uses a header-based request.
-
-**Constraint.** The Jellyfin SDK cannot supply either. In `jellyfin-api` 1.9.2,
-`LibraryApi.getDownloadUrl(itemId)` builds the URL with empty query parameters and
-no token, and `LibraryApi.getDownload(itemId)` returns the whole file as
-`Response<ByteArray>` — unusable for large books. The SDK also contains no `api_key`
-literal in any artifact.
-
-**Risk.** Low. The token stops travelling in URLs for the reader path.
-
-**Done when.** The reader's download request carries an `Authorization` header and
-no token appears in any URL it constructs.
+The helper functions are still `internal` members of the Activity's companion
+object, so the tests reach across the app module to them. That is the main reason
+P2-6 proposes extracting them.
 
 ---
 
-## P1 — Structural alignment with upstream
+## P0 — Open
 
-The fork edits files upstream keeps refactoring (`DownloaderImpl`, the repository
-layer, `PlayerViewModel`). Every extra conditional in those files is a future merge
-conflict, so these items are about keeping the fork's diff small and its shape
-recognisable.
+### P0-5 The download URL still embeds the access token
 
-### P1-1 Keep the libass types inside `player/local`
+**State.** The reader half is fixed: `prepareBookFile()` streams through
+`jellyfinRepository.openDownloadStream(bookUUID)` (`BookReaderActivity.kt:473`),
+which uses an `Authorization` header (`JellyfinRepositoryImpl.kt:585-608`).
 
-**Problem.** `player/local/build.gradle.kts` exposes `api(libs.libass.media)`, so
-`app/phone/PlayerActivity.kt:104` and `app/tv/PlayerScreen.kt:182` import
-`io.github.peerless2012.ass.media.kt.withAssSupport` — a top-level extension on
-`SubtitleView` — and both apps must name an `androidx.media3.ui` type to call it.
+**Corrected premise.** The original plan claimed `DownloadManager` cannot send
+headers, so the URL token had to stay for downloads. That is false:
+`DownloadManager.Request.addRequestHeader` exists, and `DownloaderImpl.kt:110-116`
+now adds `Authorization` **and** `X-Emby-Token` on every download request
+(`1bdcfe63`). The `?api_key=` in `getDownloadUrl()`
+(`JellyfinRepositoryImpl.kt:563-567`) is therefore redundant.
 
-**Proposal.** Move the call behind the module boundary:
+**Problem.** `getDownloadUrl()` still supplies the remote book path (and is the
+fallback when a stored source has no URL) — `FindroidBook.kt:54,60,95,111` — so the
+token still travels inside a URL that can reach logs, `DownloadManager`'s database
+and error reports.
+
+**Proposal.** Drop the query parameter now that the header path exists:
 
 ```kotlin
-// player/local/.../PlayerViewModel.kt
-fun attachSubtitleOverlay(subtitleView: SubtitleView?) {
-    val handler = assHandler ?: return
-    subtitleView?.withAssSupport(handler)
+override fun getDownloadUrl(itemId: UUID): String {
+    val baseUrl = getBaseUrl().trimEnd('/')
+    return "$baseUrl/Items/$itemId/Download"
 }
 ```
 
-`player/local` already depends on `androidx.media3.ui`, so it can name
-`SubtitleView` itself. It can then use `implementation(libs.libass.media)` instead
-of `api(...)`, and the app modules drop the libass import and the direct
-`withAssSupport` call — they pass `binding.playerView.subtitleView` and nothing
-else.
+Keep `getAuthorizationHeader()`/`getAccessToken()` and the headers in
+`DownloaderImpl`. `openDownloadStream()` is already header-based; leave it alone.
 
-**Risk.** None. The library's own helper `buildWithAssSupport` applies the overlay
-the same way; only the call site moves.
+**Risk.** Low, but verify on a device that a server which only accepts `api_key`
+query auth still accepts the `X-Emby-Token` header — Jellyfin accepts both, but that
+assumption should be checked against the actual server version, not just the SDK
+sources. The change only affects URLs built from now on.
 
-**Done when.** `grep -r "peerless2012" app/` returns nothing.
+**Done when.** `grep -rn "api_key" --include=*.kt .` finds no fork code, and a book
+download plus a reader download both succeed against a live server.
 
-### P1-2 Extract the player construction from `PlayerViewModel.init`
+### P0-6 TV still shows a "Books" library tile
 
-**Problem.** `PlayerViewModel.kt:148-213` is now a 65-line `when` that builds the
-ExoPlayer, and the libass branch mutates the builder across ~25 lines before
-building. The ViewModel is the wrong place for that much construction logic.
+**Problem.** P0-1 filtered book *rows* inside a library, but not the library list.
+`MediaViewModel.loadData()` (`MediaViewModel.kt:21`) takes
+`repository.getLibraries()` unfiltered. `JellyfinRepositoryImpl.getLibraries()`
+maps through `toFindroidCollection()`, which accepts every type in
+`CollectionType.supported` (`CollectionType.kt:19`) — and that list contains
+`Books`. The TV `MediaScreen` renders every collection it receives
+(`MediaScreen.kt:75`), so a TV user sees a Books tile.
 
-**Proposal.** Extract it:
+Selecting it is worse than a dead card: navigation passes
+`CollectionType.Books` to `LibraryViewModel`, whose capability guard
+(`LibraryViewModel.kt:47-50`) emits an empty flow, so the TV opens an empty
+library screen.
+
+**Proposal.** Filter at the same seam as `HomeViewModel`: inject
+`ItemCapabilities` into `MediaViewModel` and drop book collections when
+`!supportsBooks`.
 
 ```kotlin
-internal object ExoPlayerFactory {
-    fun create(
-        context: Context,
-        useLibass: Boolean,
-        audioAttributes: AudioAttributes,
-        trackSelector: TrackSelector,
-        seekBackMs: Long,
-        seekForwardMs: Long,
-    ): Pair<ExoPlayer, AssHandler?>
-}
+val libraries =
+    repository.getLibraries().filter {
+        itemCapabilities.supportsBooks || it.type != CollectionType.Books
+    }
 ```
 
-The ViewModel then reads `val (player, handler) = ExoPlayerFactory.create(...)`.
+Do not move this into the repository: the repository is shared with the phone app
+and has no concept of a host's screens.
 
-**Risk.** Low. Behaviour is identical — the current wiring already matches the
-library's `buildWithAssSupport` recipe exactly (verified in
-`ass-media` 0.5.1 sources: `withAssMkvSupport` on the extractors factory,
-`setSubtitleParserFactory`, `renderersFactory.withAssSupport`, `handler.init(player)`).
+**Risk.** Low. Phone behaviour is unchanged (`supportsBooks = true`).
 
-**Done when.** `PlayerViewModel.init` is a short, readable block and the player
-construction is unit-testable in isolation.
+**Done when.** The TV library list has no Books tile; the phone library list still
+does.
 
-### P1-3 Make downloads polymorphic instead of type-checking
+---
 
-**Problem.** `core/.../DownloaderImpl.kt` carries seven `is FindroidBook` checks
-(lines 64, 92, 94, 164, 178, 192, 244) inside functions that upstream keeps
-type-driven with a single `when (item)`. Every new item type now needs edits in
-four places, and the book cases are interleaved with movie/episode logic.
+## P1 — Open
 
-**Proposal.** Give the download flow one seam, so the downloader stops asking what
-type it holds:
+### P1-6 `DownloadReceiver` loads the whole library to find one item
+
+**Problem.** The failure branch of `DownloadReceiver` (`:76-97`) builds a list of
+every movie, every episode and every book, maps each to a `FindroidItem`, then does
+`firstOrNull { it.id == source.itemId }` — inside a `BroadcastReceiver`, on an IO
+scope, after a download has already failed.
 
 ```kotlin
-interface DownloadableItem : FindroidItem {
-    suspend fun resolveDownloadSource(
-        sourceId: String,
-        repository: JellyfinRepository,
-    ): FindroidSource
-
-    suspend fun persistDownloadMetadata(
-        database: ServerDatabaseDao,
-        repository: JellyfinRepository,
-    )
-}
+items.addAll(database.getMovies().map { it.toFindroidMovie(database, repository.getUserId()) })
+items.addAll(database.getEpisodes().map { it.toFindroidEpisode(...) })
+items.addAll(database.getBooks().map { it.toFindroidBook(...) })
+items.firstOrNull { it.id == source.itemId }?.let { downloader.deleteItem(it, ...) }
 ```
 
-`FindroidMovie`, `FindroidEpisode` and `FindroidBook` implement it; `DownloaderImpl`
-goes back to dispatching on the type. The book-specific source fallback chain moves
-into `FindroidBook`. The episode branch still kicks off the show/season image
-downloads, so that part stays in the downloader rather than in the item.
+The mapping functions are not free: each row goes through the DTO mappers, which
+resolve images/sources. On a large offline library this is a table scan plus N+1
+lookups, and it is the code path that runs when the user is already in a failure
+state. `deleteItem()` only needs the item id (for `deleteUserData`, trickplay and
+image cleanup) and, when the item is a `DownloadableItem`, its concrete type for
+`deleteDownloadMetadata`.
 
-**Risk.** Medium — `DownloaderImpl` is central to offline mode. Land it as its own
-commit with the movie and episode paths unchanged, and verify a movie download and
-an episode download end to end before switching the book path over.
-
-**Done when.** `DownloaderImpl` contains no `is FindroidBook` check.
-
-### P1-4 Replace exception-driven lookups in the offline repository
-
-**Problem.** `JellyfinRepositoryOfflineImpl.getItem()` (`:82-97`) returns `null` in
-upstream. The fork replaced it with nested `try/catch` blocks that rely on Room
-throwing `EmptyResultSetException` for a missing row. Two consequences: the lookup
-path is exception-driven, and `getUserDataOrCreateNew()` writes a user-data row as
-a side effect of a read.
-
-There is also a behaviour change beyond books. `getItem()` is called by
-`core/.../work/ImagesDownloaderWorker.kt:35`, so in offline mode the fork now
-downloads images for offline items where upstream did not. That may be a fix, but it
-is undocumented and untested.
-
-**Proposal.** Add nullable DAO queries and make the contract explicit:
+**Proposal.** Add the nullable by-id queries the original P1-4 described, but use
+them here rather than in `getItem()`:
 
 ```kotlin
-// The existing getMovie/getEpisode/getBook return non-null types, so Room throws
-// EmptyResultSetException on a miss. Add nullable counterparts next to them.
 @Query("SELECT * FROM movies WHERE id = :id") suspend fun findMovie(id: UUID): FindroidMovieDto?
 @Query("SELECT * FROM episodes WHERE id = :id") suspend fun findEpisode(id: UUID): FindroidEpisodeDto?
-@Query("SELECT * FROM books WHERE id = :id") suspend fun findBook(id: UUID): FindroidBookDto?
 ```
+
+Then resolve three indexed lookups instead of three table scans:
 
 ```kotlin
-override suspend fun getItem(itemId: UUID): FindroidItem? {
-    val userId = jellyfinApi.userId!!
-    return database.findMovie(itemId)?.toFindroidMovie(database, userId)
-        ?: database.findEpisode(itemId)?.toFindroidEpisode(database, userId)
-        ?: database.findBook(itemId)?.toFindroidBook(database, userId)
-}
+val item =
+    database.findMovie(source.itemId)?.toFindroidMovie(database, repository.getUserId())
+        ?: database.findEpisode(source.itemId)?.toFindroidEpisode(database, repository.getUserId())
+        ?: database.findBook(source.itemId)?.toFindroidBook(database, repository.getUserId())
+item?.let { downloader.deleteItem(it, source.toFindroidSource(database)) }
 ```
 
-Then decide the offline-image question on purpose: either keep the new behaviour and
-note it in the commit message, or restore upstream's behaviour by returning `null`
-for non-book items.
+Keep `getItem()` books-only; this is a separate caller with a different contract.
 
-**Risk.** Low for the query change; the offline-image behaviour needs a decision, not
-a decision by accident.
+**Risk.** Low. Pure query change on an error path; the three `find*` lookups are
+primary-key hits.
 
-**Done when.** No `try/catch` is used for control flow in the repository, and the
-offline-image behaviour is either restored or covered by a test.
-
-### P1-5 Share the action bar between movies and books
-
-**Problem.** `app/phone/.../presentation/book/components/BookButtonsBar.kt` (209 lines)
-duplicates most of upstream's phone `ItemButtonsBar` (282 lines) — mark played,
-favourite, download, cancel, delete. The two will drift; the fork has already had to
-fix one copy (`ItemButtonsBar.kt:198-219`, moving `context.getString` out of a
-`remember` block into `LocalResources`, because a `remember` keyed on nothing would
-not recompose on a configuration change).
-
-**Proposal.** Extract the shared pieces into `core` — `MarkPlayedButton`,
-`FavoriteButton`, `DownloadButton` — and let each screen compose them.
-
-**Risk.** Low. The upstream `ItemButtonsBar` has no book branch to preserve, so the
-extraction is mechanical.
-
-**Done when.** The download/mark/favourite logic exists once.
+**Done when.** The failure branch contains no `getMovies()` / `getEpisodes()` /
+`getBooks()` full scans.
 
 ---
 
-## P2 — Polish
+## P2 — Open
 
 ### P2-1 The libass toggle is shown to mpv users, and defaults to on
 
-`SettingsViewModel.kt:257-264` places `pref_player_exo_libass` right after the
+`SettingsViewModel.kt:284-291` places `pref_player_exo_libass` directly after the
 backend selector with no condition, so mpv users see a switch that does nothing.
-The settings model has no display condition today: `Preference` carries
-`dependencies: List<PreferenceBackend<Boolean>>`
-(`settings/.../models/Preference.kt:11`), which the ViewModel evaluates into an
-`enabled` flag (`SettingsViewModel.kt:842`) — but that only greys a row out, and
-it only works for boolean preferences. `playerBackend` is a string preference
-(`AppPreferences.kt:29`), so it cannot express "only when the backend is
-ExoPlayer".
+`PreferenceSwitch` has `enabled` and `dependencies` but no visibility field, and
+`Preference` dependencies are `List<PreferenceBackend<Boolean>>` — boolean-only, so
+they cannot express "only when `playerBackend == exoplayer`". `playerBackend` is a
+string preference (`AppPreferences.kt:29`).
 
-Add a value-based condition, then apply it to the switch:
+Add a value-based display condition:
 
 ```kotlin
 data class PreferenceSwitch(
@@ -377,66 +307,126 @@ data class PreferenceSwitch(
 )
 ```
 
-The switch should be hidden when the backend is `mpv`; a disabled-but-visible row
-would still be confusing next to a backend selector that changes nothing about it.
+and hide the row when the backend is `mpv`. A disabled-but-visible row is still
+confusing next to a selector that changes nothing about it.
 
-Separately, `AppPreferences.kt:31` defaults the preference to `true`, which turns
-libass on for every ExoPlayer user. The cost is low — `AssHandler` loads libass
-lazily, "to avoid loading libass if the played media does not have ASS tracks"
-(`ass-media` 0.5.1, `AssHandler.kt:36-38`) — but a default-on change to the
-rendering path deserves an explicit mention. The fork's README already advertises
-"SSA/ASS (with libass rendering support)" (`README.md:39`); that line should say
-that it is on by default and how to turn it off.
+Separately, `AppPreferences.kt:31` defaults the preference to `true`, turning libass
+on for every ExoPlayer user. The cost is low — `AssHandler` loads libass lazily
+(`ass-media` 0.5.1), and `AssSubtitleParserFactory` falls back to the default parser
+for non-SSA formats — but it is still a default-on change to the rendering path.
+The README should say it is on by default and how to turn it off.
 
 ### P2-2 Book size is always zero
 
-Books have no media sources, so `BaseItemDto.toFindroidBook()`
-(`data/.../FindroidBook.kt:61,95`) sets the item `size` to `null` and the
-fallback `FindroidSource.size` to `0L`. The pre-flight storage check in
-`DownloaderImpl.kt:113` compares `stats.availableBytes < source.size`, so for
-books it always passes and the download starts without a known total.
+`BaseItemDto.toFindroidBook()` sets both the remote `FindroidSource.size` and the
+item `size` from `mediaSources?.firstOrNull()?.size` (`FindroidBook.kt:112` and
+`:162`). Books have no media sources, so the item size is `null` and the source
+size is `0L`.
 
-Resolve the size from the server instead — a `HEAD` request on the download URL for
-`Content-Length`, or the item size from the Jellyfin API if the server reports one —
-or state explicitly that books skip the pre-flight check.
+`1bdcfe63` added `if (source.size > 0 && stats.availableBytes < source.size)` at
+`DownloaderImpl.kt:86`, so an unknown size no longer produces a misleading
+storage error — but it also means the pre-flight check is simply skipped for books.
+`DownloadManager` itself gets the real length from the server, so progress is fine.
 
-### P2-3 Reader cache handling
+Choose deliberately: resolve the size with a `HEAD` request on the download URL
+(`Content-Length`) and store it on the source, or document that books skip the
+pre-flight check. The current state is the second option, just undocumented.
 
-`BookReaderActivity.prepareBookFile()` (`:313-378`) stores books under
-`cacheDir/books`. The code does reuse a cached file when one is present
-(`:345-355`), so a book is downloaded once per cache lifetime — but `cacheDir` is
-evictable by the OS, nothing ever prunes it, and there is no conditional request:
-once the file is gone, the whole book is fetched again with no `If-None-Match` or
-`Last-Modified` check.
+### P2-3 Reader cache is unbounded and never revalidated
 
-Use `filesDir` for a persistent copy, prune old entries, and send conditional
-request headers so an unchanged book is not transferred again.
+`prepareBookFile()` uses `File(cacheDir, "books")` (`BookReaderActivity.kt:439`).
+It reuses any matching `$bookId.*` file (`:440-468`), which is good, but:
 
-### P2-4 First unit tests
+- `cacheDir` can be evicted by the OS, and when it is, the whole book is fetched
+  again with no `If-None-Match` / `Last-Modified` check.
+- Nothing prunes the directory. Cached books accumulate until the OS clears the
+  cache, and a re-uploaded book is never refreshed — the stale file is reused
+  forever.
 
-The repository currently contains no test sources (`find . -name "*Test.kt"` returns
-nothing). Two mapping functions in the fork are good first targets:
+Use a persistent location (`filesDir`) for the copy the reader needs, prune entries
+that have not been opened in a while, and send conditional headers so an unchanged
+book is not transferred again. If the server does not return validators, fall back
+to a size/mtime comparison.
 
-- `BaseItemDto.toFindroidBook()` — the source fallback and author-resolution logic
-- `FindroidBookDto.toFindroidBook()` — the offline path
+### P2-5 Local reading position is not scoped to the user
 
-Both are pure mapping functions. The first is `suspend` and takes a
-`JellyfinRepository`, so it needs a small fake for the two methods it calls
-(`getDownloadUrl`, and whatever `toFindroidImages` uses); the second takes a
-`ServerDatabaseDao`, so an in-memory Room database covers it.
+The local locator is stored under `pref_book_locator_<bookId>`
+(`BookReaderActivity.kt:582`, `:874`, `:964`) in the single app
+`SharedPreferences` file. That key has no server or user component, and Findroid
+supports multiple users/servers on one device. Two users reading the same book —
+or the same server re-added under a different account — share one saved position,
+so opening the book jumps to a stranger's page until the server position overrides
+it.
+
+Include the user id in the key (the repository already exposes `getUserId()`):
+
+```kotlin
+private fun locatorKey(bookId: UUID) = "$KEY_LOCATOR_PREFIX${jellyfinRepository.getUserId()}_$bookId"
+```
+
+Migration is optional: on a miss the reader already falls back to the server
+position (P0-3), so the worst case is one resume that starts from the server's
+value. Document that in the commit message rather than writing migration code.
+
+### P2-6 `BookReaderActivity` is 1326 lines
+
+The activity now holds the reader UI, file preparation, the cache, format
+detection, progress math, chapter title resolution and the appearance plumbing.
+The companion object alone (`:959-1326`) contains the functions the new tests
+exercise, which is why `app/phone` tests have to reach into activity internals.
+
+Extract in behaviour-preserving steps, starting with the pure parts:
+
+1. `BookProgress` — `calculateTotalTicks`, `calculateProgressTicks`,
+   `calculateProgressionFromServerTicks`, `resolveChapterTitle`. Pure functions over
+   `Publication`/`Locator`; move `EpubProgressTest` with them.
+2. `BookFilePreparer` — the local-source/cache/download logic of
+   `prepareBookFile()` plus `detectBookFormat`, `buildFormatHints`,
+   `safeMoveOrCopy`; move `CbzTest` with them.
+3. Leave the activity as wiring: intents, lifecycle, view binding, navigator setup.
+
+The natural home for 1 and 2 is a new package in `modes/book` (or a small
+`reader` module) so the tests stop depending on `app/phone`. Do not move the file
+preparer until it no longer needs `Context` cache/file helpers it cannot get from
+parameters.
+
+**Risk.** Medium only if done in one commit. Land each extraction separately with
+the existing tests unchanged, then rerun them from the new module.
+
+### P2-7 `ktfmtCheck` may reject fork-added lines (unverified)
+
+CI runs `./gradlew ktfmtCheck` with `kotlinLangStyle()` on every `.kt`/`.kts` change
+(`.github/workflows/format.yaml`, `build.gradle.kts:21-27`). Several fork-added
+lines exceed the 100-column limit in places ktfmt would normally wrap, for example:
+
+- `app/phone/.../presentation/film/components/ProgressBar.kt:21` (104 chars)
+- `app/tv/.../ui/components/ItemCard.kt:67-68` (added condition and progress calc)
+- helper lines in `CbzTest.kt` (up to 125 chars)
+
+Width alone is not proof: upstream `PlayerScreen.kt` already contains lines over
+100 that CI accepts, because a formatter cannot always break them. But the
+`ProgressBar`/`ItemCard` lines are assignment/condition lines that ktfmt can break,
+so they are plausible failures. There is no JDK in this environment, so
+`ktfmtCheck` could not be run.
+
+**Action.** Run `./gradlew ktfmtFormat ktfmtCheck` before the next push. If the
+formatter rewrites those files, fold the result into the next commit rather than a
+format-only commit, and keep long string literals in tests as-is.
 
 ---
 
 ## Suggested sequence
 
-1. **P0-1** (capability gate) and **P0-2** (debounce) first — small, isolated, and
-   they stop the visible defects.
-2. **P0-3**, **P0-4**, **P0-5** — reader correctness and token handling.
-3. **P1-4** (nullable DAO queries) and **P1-3** (polymorphic downloads) together —
-   they touch the same offline path, so land them in one branch with the movie and
-   episode flows verified end to end.
-4. **P1-1**, **P1-2**, **P1-5** — structural cleanups, each in its own commit.
-5. **P2** — polish, opportunistically.
+Only open work remains:
+
+1. **P0-6** (TV Books tile) — smallest user-visible defect, mirrors P0-1's shape.
+2. **P0-5** (drop the URL token) — needs one device check against a live server.
+3. **P1-6** (receiver by-id lookup) — same nullable-query pattern as `findBook`.
+4. **P2-5** (user-scoped locator key) — one-line key change, no migration.
+5. **P2-1**, **P2-2**, **P2-3** — settings and cache polish, independent of each other.
+6. **P2-6** (activity extraction) — do it last and in small commits, with the
+   existing tests moved alongside each extraction.
+7. **P2-7** — run the formatter once, opportunistically.
 
 Keep the fork's changes in small commits that replay cleanly on upstream `main`.
 Upstream is actively refactoring the same files (`DownloaderImpl`, the repository
@@ -446,30 +436,37 @@ layer, `PlayerViewModel`), and a smaller diff is what makes future syncs cheap.
 
 ## Verification notes
 
-What was checked, and how:
+How the status above was checked, and what was not checked:
 
-- **Upstream comparison.** `jarnedemeulemeester/findroid` was cloned to
-  `/tmp/opencode/upstream-findroid`; upstream `main` is `f7d090f7`, byte-identical
-  to this fork's branch point, so `git diff f7d090f7..HEAD` is the complete fork
-  delta. Upstream has no book code (`grep -ril book` matches only
-  `data/.../CollectionType.kt`) and no libass in the player.
-- **libass integration.** `io.github.peerless2012:ass-media:0.5.1` and its transitive
-  `ass-kt:0.5.1` were downloaded from Maven Central and their sources inspected.
-  `AssSubtitleParserFactory.create()` delegates to `DefaultSubtitleParserFactory` for
-  every format except `TEXT_SSA`, so SRT/VTT subtitles keep working with libass
-  enabled — no regression. `ass-kt` ships `libass.so`, `libasskt.so` and
-  `libc++_shared.so` for all four ABIs, which is why the `pickFirsts` entries in both
-  app build files are needed.
-- **Download URL.** `org.jellyfin.sdk:jellyfin-api-jvm:1.9.2` sources were inspected:
-  `LibraryApi.getDownloadUrl()` builds the URL with empty query parameters and no
-  token, `LibraryApi.getDownload()` returns `Response<ByteArray>`, and no `api_key`
-  literal exists in the `jellyfin-api`, `jellyfin-core` or `jellyfin-api-okhttp`
-  artifacts.
-- **Readium.** `readium-shared` and `readium-streamer` 3.4.0 sources were
-  inspected: `Publication` has no `locatorFromProgression`, and
-  `DefaultPublicationParser` registers `EpubPositionsService` for EPUB and
-  `PerResourcePositionsService` for Divina, so `publication.positions()` is
-  available for both formats the reader supports.
-- **Not verified.** No JDK is installed in the environment used for this review, so
-  the fork was not compiled and no runtime behaviour was observed. Every claim above
-  comes from reading code, or from the published sources of the libraries involved.
+- **Baseline.** `git log`/`git diff` against `a451220b`, the upstream tip merged at
+  `80113009`. `git diff --stat a451220b..HEAD` gives 66 files,
+  +6261 / −302; `git log --no-merges --oneline a451220b..HEAD` gives 35 commits.
+  The previous plan's `f7d090f7` is an ancestor of `a451220b`, so the two deltas
+  are not directly comparable.
+- **Per-item status.** Each closed item was located in the working tree and its
+  line numbers re-read, not inferred from the commit message. Commit SHAs are the
+  ones that introduced the change; later commits touched some of the same files
+  (`281d6655`, `82a874ee`, `40c81900`).
+- **P0-5 premise correction.** The original plan's claim that `DownloadManager`
+  cannot send headers is wrong. `DownloadManager.Request.addRequestHeader` is part
+  of the Android API, and `DownloaderImpl.kt:110-116` uses it for both
+  `Authorization` and `X-Emby-Token`. The remaining issue is only that
+  `getDownloadUrl()` still puts the token in the query string.
+- **P1-4 scope.** `grep "fun find" ServerDatabaseDao.kt` shows `findBook` only, and
+  `JellyfinRepositoryOfflineImpl.getItem()` is books-only. The plan's original
+  three-query proposal was deliberately narrowed; P1-6 is where the other two
+  queries would actually be used.
+- **P0-6.** `MediaViewModel` injects only `JellyfinRepository`;
+  `getLibraries()` is unfiltered; `CollectionType.supported` includes `Books`;
+  `app/tv/.../MediaScreen.kt:75` renders every collection. The phone app is
+  unaffected because `supportsBooks = true`.
+- **P1-6.** `DownloadReceiver.kt:76-97` was read in full: three full-table
+  `getMovies()`/`getEpisodes()`/`getBooks()` reads followed by `firstOrNull` by id.
+- **P2-7.** `.github/workflows/format.yaml` runs `ktfmtCheck`; `ktfmtCheck` itself
+  could not be executed.
+- **Not verified.** No JDK (`java`/`javac` absent) and no Android SDK
+  (`ANDROID_HOME`/`ANDROID_SDK_ROOT` unset, no `android.jar`) in this environment,
+  so the fork was not compiled and no tests or formatter were run. Every claim
+  above comes from reading the tree, or from the published sources of the libraries
+  involved (`ass-media` 0.5.1, Jellyfin SDK 1.9.2, Readium 3.4.0) as recorded in the
+  original version of this plan.
