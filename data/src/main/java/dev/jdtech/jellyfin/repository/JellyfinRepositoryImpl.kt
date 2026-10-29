@@ -252,7 +252,8 @@ class JellyfinRepositoryImpl(
                 .getResumeItems(
                     jellyfinApi.userId!!,
                     limit = 12,
-                    includeItemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.EPISODE),
+                    includeItemTypes =
+                        listOf(BaseItemKind.MOVIE, BaseItemKind.EPISODE, BaseItemKind.BOOK),
                 )
                 .content
                 .items

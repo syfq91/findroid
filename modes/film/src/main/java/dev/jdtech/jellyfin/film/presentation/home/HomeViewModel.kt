@@ -7,6 +7,7 @@ import dev.jdtech.jellyfin.core.presentation.capability.ItemCapabilities
 import dev.jdtech.jellyfin.database.ServerDatabaseDao
 import dev.jdtech.jellyfin.film.R as FilmR
 import dev.jdtech.jellyfin.models.CollectionType
+import dev.jdtech.jellyfin.models.FindroidBook
 import dev.jdtech.jellyfin.models.HomeItem
 import dev.jdtech.jellyfin.models.HomeSection
 import dev.jdtech.jellyfin.models.UiText
@@ -95,7 +96,12 @@ constructor(
             return
         }
 
-        val resumeItems = repository.getResumeItems()
+        val resumeItems =
+            repository.getResumeItems().filter {
+                // Books are only supported where a book reader screen exists (see
+                // ItemCapabilities.supportsBooks).
+                itemCapabilities.supportsBooks || it !is FindroidBook
+            }
 
         val section =
             if (resumeItems.isEmpty()) {
