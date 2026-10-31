@@ -94,7 +94,7 @@
 
     </LinearLayout>
 
-    <!-- Controls Overlay (Top Bar + Bottom Bar) -->
+    <!-- Controls Overlay (Top Bar) -->
     <FrameLayout
         android:id="@+id/controls_overlay"
         android:layout_width="match_parent"
@@ -168,47 +168,6 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/table_of_contents"
                 android:src="@drawable/ic_library" />
-
-        </LinearLayout>
-
-        <!-- Bottom Bar -->
-        <LinearLayout
-            android:id="@+id/bottom_bar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:background="#D91E1E1E"
-            android:gravity="center"
-            android:orientation="horizontal"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="36dp">
-
-            <ImageButton
-                android:id="@+id/button_prev_page"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Previous page"
-                android:src="@drawable/ic_arrow_left" />
-
-            <TextView
-                android:id="@+id/text_progress"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                android:textColor="@android:color/white"
-                tools:text="12%" />
-
-            <ImageButton
-                android:id="@+id/button_next_page"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Next page"
-                android:src="@drawable/ic_arrow_right" />
 
         </LinearLayout>
 

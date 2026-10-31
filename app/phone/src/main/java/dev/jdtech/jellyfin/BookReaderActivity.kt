@@ -139,15 +139,10 @@ class BookReaderActivity : AppCompatActivity() {
 
         binding.buttonToc.setOnClickListener { showTableOfContents() }
 
-        binding.buttonPrevPage.setOnClickListener { navigator?.goBackward(animated = true) }
-
-        binding.buttonNextPage.setOnClickListener { navigator?.goForward(animated = true) }
-
         binding.readerStatusBar.setOnClickListener { toggleControls() }
 
         binding.controlsOverlay.setOnClickListener { toggleControls() }
         binding.topBar.setOnClickListener { /* Consume clicks to prevent dismissing controls */ }
-        binding.bottomBar.setOnClickListener { /* Consume clicks to prevent dismissing controls */ }
 
         val baseHorizontalPadding = (16 * resources.displayMetrics.density).toInt()
         val baseBottomPadding = (6 * resources.displayMetrics.density).toInt()
@@ -708,7 +703,6 @@ class BookReaderActivity : AppCompatActivity() {
                         epubChapterPage = pageIndex + 1
                         epubChapterTotalPages = totalPages.coerceAtLeast(1)
                         val progressText = "$epubChapterPage/$epubChapterTotalPages"
-                        binding.textProgress.text = progressText
                         binding.statusPageCount.text = progressText
                         val title =
                             resolveChapterTitle(
@@ -853,7 +847,6 @@ class BookReaderActivity : AppCompatActivity() {
                     )
                 "$currentPage/$totalPages"
             }
-        binding.textProgress.text = progressText
         binding.statusPageCount.text = progressText
 
         val title =
